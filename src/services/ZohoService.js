@@ -6,6 +6,7 @@ import cache from '../store/CacheStore.js';
 
 const ZOHO_TOKEN_CACHE_KEY = 'zoho:access_token';
 const ZOHO_BASE_URL        = 'https://www.zohoapis.in/crm/v2';
+const RECORDS_CACHE_TTL    = 300; // 5 minutes — prevents hammering Zoho on repeated requests
 
 /**
  * ZohoService — concrete implementation of ICRMService.
@@ -58,6 +59,15 @@ class ZohoService extends ICRMService {
     }
 
     async fetchRecords({ module, page = 1, per_page = 50, fields, sort_by, sort_order = 'desc' }) {
+        // Cache key includes all params — different queries never collide
+        const cacheKey = `zoho:records:${module}:${page}:${per_page}:${fields || ''}:${sort_by || ''}:${sort_order}`;
+        const cached   = cache.get(cacheKey);
+
+        if (cached) {
+            logger.debug('Zoho: returning cached records', { module, page, cacheKey });
+            return cached;
+        }
+
         const token  = await this.getAccessToken();
         const params = { page, per_page };
 
@@ -65,7 +75,7 @@ class ZohoService extends ICRMService {
         if (sort_by)    params.sort_by    = sort_by;
         if (sort_order) params.sort_order = sort_order;
 
-        logger.info('Zoho: fetching records', { module, page, per_page });
+        logger.info('Zoho: fetching records from API', { module, page, per_page });
 
         try {
             const { data: response } = await axios.get(`${ZOHO_BASE_URL}/${module}`, {
@@ -74,10 +84,15 @@ class ZohoService extends ICRMService {
                 timeout: 30_000,
             });
 
-            return {
+            const result = {
                 data: response.data || [],
                 info: response.info || {},
             };
+
+            // Cache the result for 5 minutes
+            cache.set(cacheKey, result, RECORDS_CACHE_TTL);
+
+            return result;
 
         } catch (err) {
             if (err.response?.status === 401) cache.del(ZOHO_TOKEN_CACHE_KEY);
