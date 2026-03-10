@@ -2,14 +2,15 @@ const optional = (key, fallback = '') => process.env[key] || fallback;
 
 export const env = {
     // Server
-    NODE_ENV:    optional('NODE_ENV', 'development'),
-    PORT:        parseInt(optional('PORT', '3000'), 10),
-    API_VERSION: optional('API_VERSION', 'v1'),
+    NODE_ENV:        optional('NODE_ENV', 'development'),
+    PORT:            parseInt(optional('PORT', '3000'), 10),
+    API_VERSION:     optional('API_VERSION', 'v1'),
+    CLUSTER_WORKERS: optional('CLUSTER_WORKERS', ''),  // blank = use os.cpus().length
 
     // Security
     API_KEY:              optional('API_KEY', ''),
-    RATE_LIMIT_WINDOW_MS: parseInt(optional('RATE_LIMIT_WINDOW_MS', '60000'), 10),
-    RATE_LIMIT_MAX:       parseInt(optional('RATE_LIMIT_MAX_REQUESTS', '100'), 10),
+    RATE_LIMIT_WINDOW_MS: parseInt(optional('RATE_LIMIT_WINDOW_MS', '1000'),  10), // 1-second window
+    RATE_LIMIT_MAX:       parseInt(optional('RATE_LIMIT_MAX_REQUESTS', '200'), 10), // 200 req/sec
 
     // Zoho CRM
     ZOHO_CLIENT_ID:     optional('ZOHO_CLIENT_ID'),

@@ -3,6 +3,9 @@ import { AppError } from '../middleware/errorHandler.js';
 import logger from '../utils/logger.js';
 import syncQueue from '../store/SyncQueue.js';
 import streamStorage from '../services/StreamStorageService.js';
+import cache from '../store/CacheStore.js';
+
+const STORAGE_CACHE_TTL = 30; // seconds — busted automatically after every sync
 
 /**
  * CRMController — handles HTTP requests for all CRM endpoints.
@@ -110,6 +113,9 @@ class CRMController {
                     streamStorage.saveChunked(module, records),
                 ]);
 
+                // Bust storage read caches so next GET /storage/:module reflects new data
+                cache.del(`storage:latest:${module}`);
+
                 res.json({
                     success:    true,
                     message:    `Sync complete for ${module}`,
@@ -130,11 +136,22 @@ class CRMController {
     // GET /crm/storage/:module
     async getStoredData(req, res, next) {
         try {
-            const { module } = req.params;
+            const { module }   = req.params;
+            const cacheKey     = `storage:latest:${module}`;
+            const cachedResult = cache.get(cacheKey);
+
+            if (cachedResult) {
+                logger.debug('CRMController: returning cached storage data', { module });
+                return res.json(cachedResult);
+            }
+
             const data = await this._storage.readLatest(module);
             if (!data) throw new AppError(`No stored data for module: ${module}. Run /sync first.`, 404, 'NOT_FOUND');
 
-            res.json({ success: true, ...data });
+            const response = { success: true, ...data };
+            cache.set(cacheKey, response, STORAGE_CACHE_TTL);
+
+            res.json(response);
 
         } catch (err) { next(err); }
     }
