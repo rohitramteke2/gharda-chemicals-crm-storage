@@ -270,6 +270,96 @@ import { strictLimiter } from '../middleware/rateLimiter.js';
  *         description: Rate limit exceeded
  */
 
+/**
+ * @swagger
+ * /api/v1/crm/cache/stats:
+ *   get:
+ *     summary: View cache diagnostics for this worker process
+ *     description: >
+ *       Returns hit rate, key count, memory usage, and all active keys with remaining TTL.
+ *       **Important:** Under cluster mode each worker has its own independent cache.
+ *       This endpoint only shows stats for the worker that handled your request.
+ *     tags: [CRM]
+ *     responses:
+ *       200:
+ *         description: Cache diagnostics returned
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:      { type: boolean }
+ *                 warning:      { type: string }
+ *                 pid:          { type: integer, description: Worker process ID }
+ *                 keyCount:     { type: integer }
+ *                 hits:         { type: integer }
+ *                 misses:       { type: integer }
+ *                 hitRatePct:   { type: number }
+ *                 ksize:        { type: integer, description: Bytes used by keys }
+ *                 vsize:        { type: integer, description: Bytes used by values }
+ *                 keys:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       key:        { type: string }
+ *                       ttlSeconds: { type: integer }
+ */
+
+/**
+ * @swagger
+ * /api/v1/crm/cache/flush:
+ *   delete:
+ *     summary: Flush all cache keys on this worker process
+ *     description: >
+ *       Clears all cached data (tokens, records, storage reads) on the worker that
+ *       handles this request. Other workers are unaffected. Next requests on this
+ *       worker will re-fetch from Zoho/disk and re-populate the cache.
+ *     tags: [CRM]
+ *     responses:
+ *       200:
+ *         description: Cache flushed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:     { type: boolean }
+ *                 message:     { type: string }
+ *                 keysFlushed: { type: integer }
+ */
+
+/**
+ * @swagger
+ * /api/v1/crm/cache/key/{key}:
+ *   delete:
+ *     summary: Delete a specific cache key on this worker process
+ *     description: >
+ *       Useful for forcing a specific Zoho record page or storage entry to
+ *       re-fetch without flushing everything.
+ *       Known key patterns: `zoho:access_token`, `zoho:records:Leads:1:50:::desc`,
+ *       `storage:latest:Leads`.
+ *     tags: [CRM]
+ *     parameters:
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         schema: { type: string }
+ *         example: "storage:latest:Leads"
+ *     responses:
+ *       200:
+ *         description: Key deleted (or reported as not found)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 key:     { type: string }
+ *                 existed: { type: boolean }
+ *                 message: { type: string }
+ */
+
 export default function buildCrmRoutes(ctrl) {
     const router = Router();
 
@@ -280,6 +370,11 @@ export default function buildCrmRoutes(ctrl) {
     // Sync
     router.get('/sync/status',                                 ctrl.getSyncStatus.bind(ctrl));
     router.post('/sync',                        strictLimiter,  ctrl.syncModule.bind(ctrl));
+
+    // Cache — must be before /storage to avoid :module param conflict
+    router.get('/cache/stats',                                 ctrl.getCacheStats.bind(ctrl));
+    router.delete('/cache/flush',               strictLimiter,  ctrl.flushCache.bind(ctrl));
+    router.delete('/cache/key/:key',            strictLimiter,  ctrl.deleteCacheKey.bind(ctrl));
 
     // Storage — specific routes before param routes to avoid conflicts
     router.get('/storage/:module/paged',                       ctrl.getPagedData.bind(ctrl));

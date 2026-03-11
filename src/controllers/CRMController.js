@@ -246,6 +246,60 @@ class CRMController {
 
         } catch (err) { next(err); }
     }
+
+    // GET /crm/cache/stats
+    async getCacheStats(req, res, next) {
+        try {
+            const diagnostics = cache.diagnostics();
+
+            res.json({
+                success: true,
+                warning: 'Stats shown are for THIS worker process only. Each worker has its own cache.',
+                ...diagnostics,
+            });
+
+        } catch (err) { next(err); }
+    }
+
+    // DELETE /crm/cache/flush
+    async flushCache(req, res, next) {
+        try {
+            const statsBefore = cache.diagnostics();
+            cache.flush();
+
+            logger.info('CRMController: cache flushed via API', { pid: process.pid });
+
+            res.json({
+                success:       true,
+                message:       `Cache flushed on worker pid ${process.pid}. Other workers are unaffected.`,
+                keysFlushed:   statsBefore.keyCount,
+            });
+
+        } catch (err) { next(err); }
+    }
+
+    // DELETE /crm/cache/key/:key
+    async deleteCacheKey(req, res, next) {
+        try {
+            const { key } = req.params;
+            if (!key) throw new AppError('key param is required', 400, 'VALIDATION_ERROR');
+
+            const existed = cache.has(key);
+            cache.del(key);
+
+            logger.info('CRMController: cache key deleted via API', { key, existed, pid: process.pid });
+
+            res.json({
+                success: true,
+                key,
+                existed,
+                message: existed
+                    ? `Key "${key}" deleted from worker pid ${process.pid}.`
+                    : `Key "${key}" was not in cache on worker pid ${process.pid}.`,
+            });
+
+        } catch (err) { next(err); }
+    }
 }
 
 export default CRMController;
