@@ -8,9 +8,18 @@ import cache from '../store/CacheStore.js';
 const ZOHO_TOKEN_CACHE_KEY = 'zoho:access_token';
 const ZOHO_BASE_URL        = `${env.ZOHO_API_DOMAIN}/crm/v2`;
 const RECORDS_CACHE_TTL    = 300; // 5 minutes — prevents hammering Zoho on repeated requests
+
+// Production: skip SSL verification (RDP has no internet for CRL checks)
+// Development: normal SSL verification
 const httpsAgent = env.isProd()
     ? new https.Agent({ rejectUnauthorized: false })
     : undefined;
+
+// Production: longer timeout (RDP network is slower)
+// Development: normal timeout
+const TOKEN_TIMEOUT   = env.isProd() ? 60_000 : 10_000;
+const RECORDS_TIMEOUT = env.isProd() ? 60_000 : 30_000;
+const SINGLE_TIMEOUT  = env.isProd() ? 60_000 : 15_000;
 
 /**
  * ZohoService — concrete implementation of ICRMService.
@@ -45,7 +54,7 @@ class ZohoService extends ICRMService {
             const { data } = await axios.post(env.ZOHO_ACCOUNTS_URL, params.toString(), {
                 headers:    { 'Content-Type': 'application/x-www-form-urlencoded' },
                 httpsAgent,
-                timeout:    10_000,
+                timeout:    TOKEN_TIMEOUT,
             });
 
             if (!data.access_token) {
@@ -87,7 +96,7 @@ class ZohoService extends ICRMService {
                 headers:    { Authorization: `Zoho-oauthtoken ${token}` },
                 httpsAgent,
                 params,
-                timeout:    30_000,
+                timeout:    RECORDS_TIMEOUT,
             });
 
             const result = {
@@ -119,7 +128,7 @@ class ZohoService extends ICRMService {
             const { data: response } = await axios.get(`${ZOHO_BASE_URL}/${module}/${id}`, {
                 headers:    { Authorization: `Zoho-oauthtoken ${token}` },
                 httpsAgent,
-                timeout:    15_000,
+                timeout:    SINGLE_TIMEOUT,
             });
             return response.data?.[0] || null;
 
