@@ -8,7 +8,9 @@ import logger from '../utils/logger.js';
 import zohoService from './ZohoService.js';
 
 const ZOHO_BASE_URL = `${env.ZOHO_API_DOMAIN}/crm/v2`;
-const httpsAgent    = new https.Agent({ rejectUnauthorized: false });
+const httpsAgent = env.isProd()
+    ? new https.Agent({ rejectUnauthorized: false })
+    : undefined;
 
 /**
  * AttachmentService — fetches and downloads Zoho CRM attachments to RDP disk.

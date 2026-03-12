@@ -8,7 +8,9 @@ import cache from '../store/CacheStore.js';
 const ZOHO_TOKEN_CACHE_KEY = 'zoho:access_token';
 const ZOHO_BASE_URL        = `${env.ZOHO_API_DOMAIN}/crm/v2`;
 const RECORDS_CACHE_TTL    = 300; // 5 minutes — prevents hammering Zoho on repeated requests
-const httpsAgent           = new https.Agent({ rejectUnauthorized: false });
+const httpsAgent = env.isProd()
+    ? new https.Agent({ rejectUnauthorized: false })
+    : undefined;
 
 /**
  * ZohoService — concrete implementation of ICRMService.
