@@ -5,7 +5,7 @@ import logger from '../utils/logger.js';
 import cache from '../store/CacheStore.js';
 
 const ZOHO_TOKEN_CACHE_KEY = 'zoho:access_token';
-const ZOHO_BASE_URL        = 'https://www.zohoapis.in/crm/v2';
+const ZOHO_BASE_URL        = `${env.ZOHO_API_DOMAIN}/crm/v2`;
 const RECORDS_CACHE_TTL    = 300; // 5 minutes — prevents hammering Zoho on repeated requests
 
 /**
