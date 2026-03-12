@@ -1,4 +1,5 @@
 import axios from 'axios';
+import https from 'https';
 import fse from 'fs-extra';
 import path from 'path';
 import { IAttachmentService } from '../interfaces/IAttachmentService.js';
@@ -7,6 +8,7 @@ import logger from '../utils/logger.js';
 import zohoService from './ZohoService.js';
 
 const ZOHO_BASE_URL = `${env.ZOHO_API_DOMAIN}/crm/v2`;
+const httpsAgent    = new https.Agent({ rejectUnauthorized: false });
 
 /**
  * AttachmentService — fetches and downloads Zoho CRM attachments to RDP disk.
@@ -40,8 +42,9 @@ class AttachmentService extends IAttachmentService {
             const { data: response } = await axios.get(
                 `${ZOHO_BASE_URL}/${module}/${recordId}/Attachments`,
                 {
-                    headers: { Authorization: `Zoho-oauthtoken ${token}` },
-                    timeout: 15_000,
+                    headers:    { Authorization: `Zoho-oauthtoken ${token}` },
+                    httpsAgent,
+                    timeout:    15_000,
                 }
             );
 
@@ -80,8 +83,8 @@ class AttachmentService extends IAttachmentService {
      * @returns {Promise<{ attachmentId, fileName, filePath, size }>}
      */
     async downloadAttachment(module, recordId, attachmentId, fileName) {
-        const token   = await zohoService.getAccessToken();
-        const dir     = this._attachmentDir(module, recordId);
+        const token    = await zohoService.getAccessToken();
+        const dir      = this._attachmentDir(module, recordId);
         const filePath = path.join(dir, fileName);
 
         await fse.ensureDir(dir);
@@ -98,6 +101,7 @@ class AttachmentService extends IAttachmentService {
                 `${ZOHO_BASE_URL}/${module}/${recordId}/Attachments/${attachmentId}`,
                 {
                     headers:      { Authorization: `Zoho-oauthtoken ${token}` },
+                    httpsAgent,
                     responseType: 'stream',
                     timeout:      60_000,
                 }

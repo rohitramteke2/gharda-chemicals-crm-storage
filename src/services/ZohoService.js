@@ -1,13 +1,14 @@
 import axios from 'axios';
+import https from 'https';
 import { ICRMService } from '../interfaces/ICRMService.js';
 import { env } from '../config/env.js';
 import logger from '../utils/logger.js';
 import cache from '../store/CacheStore.js';
 
 const ZOHO_TOKEN_CACHE_KEY = 'zoho:access_token';
-const ZOHO_BASE_URL = `${env.ZOHO_API_DOMAIN}/crm/v2`;
-
+const ZOHO_BASE_URL        = `${env.ZOHO_API_DOMAIN}/crm/v2`;
 const RECORDS_CACHE_TTL    = 300; // 5 minutes — prevents hammering Zoho on repeated requests
+const httpsAgent           = new https.Agent({ rejectUnauthorized: false });
 
 /**
  * ZohoService — concrete implementation of ICRMService.
@@ -40,8 +41,9 @@ class ZohoService extends ICRMService {
 
         try {
             const { data } = await axios.post(env.ZOHO_ACCOUNTS_URL, params.toString(), {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                timeout: 10_000,
+                headers:    { 'Content-Type': 'application/x-www-form-urlencoded' },
+                httpsAgent,
+                timeout:    10_000,
             });
 
             if (!data.access_token) {
@@ -80,9 +82,10 @@ class ZohoService extends ICRMService {
 
         try {
             const { data: response } = await axios.get(`${ZOHO_BASE_URL}/${module}`, {
-                headers: { Authorization: `Zoho-oauthtoken ${token}` },
+                headers:    { Authorization: `Zoho-oauthtoken ${token}` },
+                httpsAgent,
                 params,
-                timeout: 30_000,
+                timeout:    30_000,
             });
 
             const result = {
@@ -112,8 +115,9 @@ class ZohoService extends ICRMService {
 
         try {
             const { data: response } = await axios.get(`${ZOHO_BASE_URL}/${module}/${id}`, {
-                headers: { Authorization: `Zoho-oauthtoken ${token}` },
-                timeout: 15_000,
+                headers:    { Authorization: `Zoho-oauthtoken ${token}` },
+                httpsAgent,
+                timeout:    15_000,
             });
             return response.data?.[0] || null;
 

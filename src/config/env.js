@@ -18,8 +18,8 @@ export const env = {
     ZOHO_REFRESH_TOKEN: optional('ZOHO_REFRESH_TOKEN'),
     ZOHO_REDIRECT_URI:  optional('ZOHO_REDIRECT_URI', 'https://www.zohoapis.in/crm/v2'),
     ZOHO_ACCOUNTS_URL:  optional('ZOHO_ACCOUNTS_URL', 'https://accounts.zoho.in/oauth/v2/token'),
-    ZOHO_API_DOMAIN: optional('ZOHO_API_DOMAIN', 'https://www.zohoapis.in'),
-    
+    ZOHO_API_DOMAIN:    optional('ZOHO_API_DOMAIN',   'https://www.zohoapis.in'),
+
     // Storage
     STORAGE_BASE_PATH: optional('STORAGE_BASE_PATH', './storage/crm-data'),
 
