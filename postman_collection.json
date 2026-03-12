@@ -1,0 +1,651 @@
+{
+  "info": {
+    "_postman_id": "ae36976a-daef-4723-b4dc-e68a874bb003",
+    "name": "sandbox-api",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "53037538",
+    "_collection_link": "https://go.postman.co/collection/53037538-ae36976a-daef-4723-b4dc-e68a874bb003?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "public",
+      "item": [
+        {
+          "name": "health-check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/health",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "swagger-ui",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api-docs",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api-docs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "api-docs.json",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api-docs.json",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api-docs.json"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "records",
+      "item": [
+        {
+          "name": "get-records",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Zoho-oauthtoken 1000.6f8ec7b83c10b6c7abbbdb6b6fc30ceb.50a43f4aa170570d13e03c9b4d116bcd",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "https://www.zohoapis.in/crm/v2/Leads?page=1&per_page=10",
+              "protocol": "https",
+              "host": [
+                "www",
+                "zohoapis",
+                "in"
+              ],
+              "path": [
+                "crm",
+                "v2",
+                "Leads"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "get-single-record",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Zoho-oauthtoken 1000.6f8ec7b83c10b6c7abbbdb6b6fc30ceb.50a43f4aa170570d13e03c9b4d116bcd",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:3000/api/v1/crm/records/Leads/1113843000000696206",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "v1",
+                "crm",
+                "records",
+                "Leads",
+                "1113843000000696206"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "auth-token",
+      "item": [
+        {
+          "name": "access-token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "refresh_token",
+                  "type": "text",
+                  "uuid": "003a65a5-20d1-4fd0-9c62-9c9bc7450837"
+                },
+                {
+                  "key": "client_id",
+                  "value": "1000.32282YKFSF8ZXX74XNR3I01RRGR5AG",
+                  "type": "text",
+                  "uuid": "87ed4404-e107-4ced-a621-73e1d9b2c49a"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "4b4ec21d3611c978a9042a1a29781ffb7f4fb688ce",
+                  "type": "text",
+                  "uuid": "7029e364-f417-4722-a54b-ba2644128c27"
+                },
+                {
+                  "key": "refresh_token",
+                  "value": "1000.49d8af76226bc30679eef91e2104242c.d0600db28d6fc29ddc5bfe1ade925d27",
+                  "type": "text",
+                  "uuid": "f72c509f-25e2-4402-9791-44d8b7989b2b"
+                }
+              ]
+            },
+            "url": {
+              "raw": "https://accounts.zoho.in/oauth/v2/token",
+              "protocol": "https",
+              "host": [
+                "accounts",
+                "zoho",
+                "in"
+              ],
+              "path": [
+                "oauth",
+                "v2",
+                "token"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "refresh-token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "authorization_code",
+                  "type": "text",
+                  "uuid": "df2111b7-9fcd-4aac-89c3-96e2794249d4"
+                },
+                {
+                  "key": "client_id",
+                  "value": "1000.32282YKFSF8ZXX74XNR3I01RRGR5AG",
+                  "type": "text",
+                  "uuid": "39802f96-6b41-4fca-bf14-a352f5adbb15"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "4b4ec21d3611c978a9042a1a29781ffb7f4fb688ce",
+                  "type": "text",
+                  "uuid": "e03b96ec-7dcf-4401-9471-99242f9dc8ce"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "https://www.zohoapis.in/crm/v2",
+                  "type": "text",
+                  "uuid": "6c3f2224-e3df-47c4-9bff-68ddea1b16c5"
+                },
+                {
+                  "key": "code",
+                  "value": "1000.710beb509218dbc318470f3aaa91d461.f68acedbddf1ff76accbcc9c0eb64633",
+                  "type": "text",
+                  "uuid": "514df352-646c-4eec-8742-7faef5a511c1"
+                }
+              ]
+            },
+            "url": {
+              "raw": "https://accounts.zoho.in/oauth/v2/token",
+              "protocol": "https",
+              "host": [
+                "accounts",
+                "zoho",
+                "in"
+              ],
+              "path": [
+                "oauth",
+                "v2",
+                "token"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Cache-stats",
+      "item": [
+        {
+          "name": "Storage",
+          "item": [
+            {
+              "name": "sync-storage",
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "http://localhost:3000/api/v1/crm/storage/Leads",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "crm",
+                    "storage",
+                    "Leads"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "cache-stats",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:3000/api/v1/crm/cache/stats",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "v1",
+                "crm",
+                "cache",
+                "stats"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "cache-data",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:3000/api/v1/crm/records?module=Leads&page=1&per_page=10",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "v1",
+                "crm",
+                "records"
+              ],
+              "query": [
+                {
+                  "key": "module",
+                  "value": "Leads"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "sync-status",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"module\": \"Leads\",\r\n    \"overwrite\": true\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/v1/crm/sync",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "v1",
+                "crm",
+                "sync"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Pagination",
+      "item": [
+        {
+          "name": "snapshots",
+          "item": [
+            {
+              "name": "snapshots",
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "http://localhost:3000/api/v1/crm/storage/Leads/snapshots",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "crm",
+                    "storage",
+                    "Leads",
+                    "snapshots"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "read-specific-snapshot",
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "http://localhost:3000/api/v1/crm/storage/Leads/snapshots/2026-03-11T07-12-31.json",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "crm",
+                    "storage",
+                    "Leads",
+                    "snapshots",
+                    "2026-03-11T07-12-31.json"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "meta-data",
+          "item": [
+            {
+              "name": "meta-data",
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "http://localhost:3000/api/v1/crm/storage/Leads/meta",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "crm",
+                    "storage",
+                    "Leads",
+                    "meta"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "attachments",
+          "item": [
+            {
+              "name": "list-attachments",
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-API-Key",
+                    "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "http://localhost:3000/api/v1/crm/attachments/Leads/1113843000000696206",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "3000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "crm",
+                    "attachments",
+                    "Leads",
+                    "1113843000000696206"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "paged-data",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "6b1dfc2517e17aaa5df5558aaf86f4419ced36866476e4e57662934403e125e3",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:3000/api/v1/crm/storage/Leads/paged?page=1&pageSize=5",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "v1",
+                "crm",
+                "storage",
+                "Leads",
+                "paged"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "5"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
