@@ -6,7 +6,7 @@ import { env } from '../config/env.js';
 import logger from '../utils/logger.js';
 import zohoService from './ZohoService.js';
 
-const ZOHO_BASE_URL = 'https://www.zohoapis.in/crm/v2';
+const ZOHO_BASE_URL = `${env.ZOHO_API_DOMAIN}/crm/v2`;
 
 /**
  * AttachmentService — fetches and downloads Zoho CRM attachments to RDP disk.
