@@ -1,147 +1,253 @@
-# sandbox-api
+# Zoho CRM Attachment API
 
-Production-grade Node.js API server for fetching data from **Zoho CRM** and persisting it to the **RDP server** (local storage + MSSQL).
+Node.js Express server that downloads attachments from Zoho CRM and stores them on the RDP/VM disk.
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
-sandbox-api/
-├── server.js                    # Entry point — bootstrap + graceful shutdown
+zoho-attachment-api/
+├── server.js                          ← Entry point (loads .env, boots cluster)
 ├── package.json
-├── .env                         # Environment variables (never commit)
-│
-├── storage/
-│   └── crm-data/
-│       └── {Module}/
-│           ├── latest.json      # Most recent full fetch
-│           └── snapshots/       # Timestamped snapshots (auto-pruned after 30d)
-│
-├── logs/
-│   ├── combined-YYYY-MM-DD.log  # All logs (daily rotating)
-│   ├── error-YYYY-MM-DD.log     # Errors only
-│   └── http-YYYY-MM-DD.log      # HTTP access log
+├── .env.development                   ← Local machine config
+├── .env.production                    ← RDP / VM server config
 │
 └── src/
-    ├── app.js                   # Express factory (security, routes, middleware)
-    ├── config/env.js            # Centralised env config
+    ├── app.js                         ← Express factory (routes, middleware)
+    ├── config/
+    │   └── env.js                     ← Central config + SSL agent
     ├── routes/
-    │   ├── crm.js               # CRM route definitions
-    │   └── sql.js               # SQL route definitions
+    │   ├── attachments.js             ← PRIMARY — attachment endpoints
+    │   └── crm.js                     ← EXTRA — record fetching
     ├── controllers/
-    │   ├── CRMController.js     # Request/response for CRM endpoints
-    │   └── SQLController.js     # Request/response for SQL endpoints
+    │   ├── AttachmentController.js     ← Request/response for attachments
+    │   └── CRMController.js           ← Request/response for records
     ├── services/
-    │   ├── ZohoService.js       # OAuth2 token lifecycle + Zoho API calls
-    │   ├── SQLService.js        # MSSQL connection pool + query helpers
-    │   └── StorageService.js    # JSON file persistence on RDP disk
+    │   ├── ZohoAuthService.js         ← OAuth token lifecycle
+    │   ├── ZohoAttachmentService.js   ← List + download + store attachments
+    │   └── ZohoCRMService.js          ← Fetch CRM records
     ├── middleware/
-    │   ├── errorHandler.js      # Global error handler + AppError class
-    │   └── rateLimiter.js       # Rate limiting + API Key auth
-    ├── utils/
-    │   ├── logger.js            # Winston + daily-rotate-file
-    │   └── validator.js         # Joi schemas for all endpoints
-    └── store/
-        └── CacheStore.js        # In-memory NodeCache (tokens + hot data)
+    │   ├── auth.js                    ← API key + rate limiter
+    │   └── errorHandler.js            ← Global error handler
+    └── utils/
+        ├── logger.js                  ← Winston + daily rotation
+        └── cache.js                   ← In-memory token/data cache
 ```
 
 ---
 
 ## Setup
 
+### 1. Install dependencies
 ```bash
 npm install
-cp .env .env.local    # fill in your credentials
-npm run dev           # development (nodemon)
-npm start             # production
 ```
+
+### 2. Configure environment
+
+**Local development** — edit `.env.development`:
+- Fill in your sandbox/dev Zoho credentials
+- `npm run dev` automatically uses this file
+
+**RDP production** — edit `.env.production`:
+- Fill in the Gharda production credentials
+- Paste a fresh refresh token
+- Set storage paths to Windows directories
+- `npm start` automatically uses this file
+
+### 3. Run
+
+```bash
+# Development (auto-reloads on file changes)
+npm run dev
+
+# Production (on the RDP server)
+npm start
+```
+
+### 4. Verify connectivity
+
+Open in browser: **`http://localhost:3000/debug/zoho`**
+
+This shows:
+- Whether credentials are loaded (or still placeholders)
+- Whether Zoho accounts and API domains are reachable
+- Whether token refresh works
+- The exact error code if anything fails
 
 ---
 
 ## API Reference
 
-All routes are prefixed: `/api/v1`  
-Auth header required: `X-API-Key: <your_key>`
+All protected routes require: `X-API-Key: <your_key>` header.
+Base path: `/api/v1`
 
-### Health
-| Method | Route     | Description          |
-|--------|-----------|----------------------|
-| GET    | `/health` | Server health check  |
+### Public routes (no auth)
 
----
+| Method | Route         | Description                          |
+|--------|---------------|--------------------------------------|
+| GET    | `/health`     | Server health check                  |
+| GET    | `/debug/zoho` | Zoho connectivity diagnostics        |
 
-### CRM — `/api/v1/crm`
+### PRIMARY — Attachments
 
-| Method | Route                          | Description                              |
-|--------|-------------------------------|------------------------------------------|
-| GET    | `/records`                    | Live fetch from Zoho CRM (paginated)     |
-| GET    | `/records/:module/:id`        | Single record by ID                      |
-| POST   | `/sync`                       | Fetch ALL records → save to RDP storage  |
-| GET    | `/storage/:module`            | Read latest persisted data               |
-| GET    | `/storage/:module/snapshots`  | List all saved snapshots                 |
+| Method | Route                                              | Description                              |
+|--------|----------------------------------------------------|------------------------------------------|
+| GET    | `/api/v1/attachments/:module/:recordId`            | List attachments (metadata only)         |
+| POST   | `/api/v1/attachments/:module/:recordId/download`   | Download ALL attachments → return paths  |
+| POST   | `/api/v1/attachments/:module/:recordId/download/:attachmentId` | Download ONE attachment → return path |
 
-**GET /records query params:**
+#### List attachments
+
 ```
-module      required  Leads | Contacts | Accounts | Deals | Tasks
+GET /api/v1/attachments/Leads/1113843000000696206
+X-API-Key: your-key
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "module": "Leads",
+    "recordId": "1113843000000696206",
+    "count": 3,
+    "attachments": [
+      {
+        "id": "1113843000000703001",
+        "fileName": "proposal.pdf",
+        "size": 245760,
+        "createdBy": "John Doe",
+        "createdAt": "2026-03-10T09:30:00+05:30"
+      }
+    ]
+  }
+}
+```
+
+#### Download all attachments
+
+```
+POST /api/v1/attachments/Leads/1113843000000696206/download
+X-API-Key: your-key
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "module": "Leads",
+    "recordId": "1113843000000696206",
+    "total": 3,
+    "downloaded": 3,
+    "failed": 0,
+    "attachments": [
+      {
+        "attachmentId": "1113843000000703001",
+        "fileName": "proposal.pdf",
+        "filePath": "C:\\Users\\zoho.crm\\Desktop\\storage\\attachments\\Leads\\1113843000000696206\\proposal.pdf",
+        "size": 245760,
+        "status": "ok"
+      }
+    ]
+  }
+}
+```
+
+#### Download single attachment
+
+```
+POST /api/v1/attachments/Leads/1113843000000696206/download/1113843000000703001
+X-API-Key: your-key
+Content-Type: application/json
+
+{ "fileName": "proposal.pdf" }
+```
+
+If `fileName` is omitted, the API looks it up from Zoho automatically.
+
+### EXTRA — CRM Records
+
+| Method | Route                           | Description                  |
+|--------|---------------------------------|------------------------------|
+| GET    | `/api/v1/crm/records`           | Fetch records (paginated)    |
+| GET    | `/api/v1/crm/records/:module/:id` | Fetch single record by ID  |
+
+Query params for `/crm/records`:
+```
+module      required    Leads | Contacts | Accounts | Deals
 page        default 1
 per_page    default 50, max 200
-fields      optional  comma-separated field names
+fields      optional    comma-separated field names
 sort_by     optional
 sort_order  asc | desc (default desc)
 ```
 
-**POST /sync body:**
-```json
-{ "module": "Leads", "overwrite": false }
+---
+
+## File storage layout
+
+```
+ATTACHMENT_DIR/
+└── {Module}/
+    └── {RecordId}/
+        ├── proposal.pdf
+        ├── contract.docx
+        └── photo.jpg
 ```
 
 ---
 
-### SQL — `/api/v1/sql`
+## Environment file loading
 
-| Method | Route                  | Description                              |
-|--------|------------------------|------------------------------------------|
-| GET    | `/query`               | SELECT rows from RDP SQL table           |
-| POST   | `/insert`              | Bulk INSERT into SQL table               |
-| POST   | `/import/:module`      | Import CRM storage file into SQL table   |
-| GET    | `/health`              | SQL Server connectivity check            |
+The server picks the correct `.env` file automatically based on `NODE_ENV`:
 
-**GET /query params:**
+| NODE_ENV      | File loaded          | Command          |
+|---------------|----------------------|------------------|
+| `development` | `.env.development`   | `npm run dev`    |
+| `production`  | `.env.production`    | `npm start`      |
+
+On startup, the console prints which file was loaded:
 ```
-table    required
-where    optional  JSON object { col: val }
-limit    default 100, max 1000
-offset   default 0
-```
-
-**POST /import/:module body:**
-```json
-{ "table": "crm_leads" }
+  ENV loaded from: /path/to/.env.production  (NODE_ENV=production)
 ```
 
 ---
 
-## Logging
+## SSL handling
 
-Logs are written day-by-day under `./logs/`:
+The SSL agent is created automatically when needed:
 
-| File                        | Content                  | Retention |
-|-----------------------------|--------------------------|-----------|
-| `combined-YYYY-MM-DD.log`   | All log levels           | 30 days   |
-| `error-YYYY-MM-DD.log`      | Errors only              | 30 days   |
-| `http-YYYY-MM-DD.log`       | HTTP access log (Morgan) | 14 days   |
-
-Files are gzip-compressed after rotation and auto-deleted per retention policy.
+| Condition | SSL verification |
+|-----------|-----------------|
+| Standard Zoho cloud (`*.zohoapis.in`) | Normal (verified) |
+| Private instance (`zoho.gharda.com:14443`) | Auto-bypassed |
+| `ZOHO_SKIP_SSL_VERIFY=true` | Explicitly bypassed |
 
 ---
 
-## SOLID Principles Applied
+## Troubleshooting
 
-| Principle | Where |
-|-----------|-------|
-| **S** — Single Responsibility | Each service/controller has one job |
-| **O** — Open/Closed | SQLService query methods are extensible without modification |
-| **L** — Liskov Substitution | Services are injectable and swappable |
-| **I** — Interface Segregation | Controllers only import the service they need |
-| **D** — Dependency Inversion | App depends on service abstractions, not implementations |
+### "invalid_client" error
+- `redirect_uri` doesn't match Zoho API Console registration (even a trailing slash matters)
+- Wrong `client_id` or `client_secret` for the target Zoho instance
+- Using cloud credentials against the private instance or vice versa
+
+### "general_error" from Zoho
+- Refresh token expired or revoked — generate a new one
+- Zoho service temporarily down
+
+### 401 Unauthorized on record/attachment calls
+- Access token obtained but scopes are insufficient
+- Regenerate with: `ZohoCRM.modules.ALL,ZohoCRM.settings.ALL`
+
+### SSL errors
+| Error code | Meaning | Fix |
+|---|---|---|
+| `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | Self-signed cert | Set `ZOHO_SKIP_SSL_VERIFY=true` |
+| `DEPTH_ZERO_SELF_SIGNED_CERT` | Self-signed cert | Set `ZOHO_SKIP_SSL_VERIFY=true` |
+| `ECONNREFUSED` | Port not open | Check if Zoho server is running |
+| `ENOTFOUND` | DNS failure | Check hostname resolution on RDP |
+| `ETIMEDOUT` | Firewall | Check outbound firewall rules |

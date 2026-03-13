@@ -1,10 +1,6 @@
 node_modules/
-# .env
-logs/
-storage/crm-data/
-*.log
-coverage/
-dist/
 storage/
-zips/
-postman_collection.*
+logs/
+.env
+.env.*.local
+*.log

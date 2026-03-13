@@ -1,37 +1,65 @@
-const optional = (key, fallback = '') => process.env[key] || fallback;
+import https from 'https';
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+const get = (key, fallback = '') => process.env[key] || fallback;
+
+// ── Exported config object ─────────────────────────────────────────────────
 export const env = {
-    // Server
-    NODE_ENV:        optional('NODE_ENV', 'development'),
-    PORT:            parseInt(optional('PORT', '3000'), 10),
-    API_VERSION:     optional('API_VERSION', 'v1'),
-    CLUSTER_WORKERS: optional('CLUSTER_WORKERS', ''),  // blank = use os.cpus().length
+    NODE_ENV:    get('NODE_ENV', 'development'),
+    PORT:        parseInt(get('PORT', '3000'), 10),
+    API_VERSION: get('API_VERSION', 'v1'),
 
     // Security
-    API_KEY:              optional('API_KEY', ''),
-    RATE_LIMIT_WINDOW_MS: parseInt(optional('RATE_LIMIT_WINDOW_MS', '1000'),  10), // 1-second window
-    RATE_LIMIT_MAX:       parseInt(optional('RATE_LIMIT_MAX_REQUESTS', '200'), 10), // 200 req/sec
+    API_KEY:              get('API_KEY'),
+    RATE_LIMIT_WINDOW_MS: parseInt(get('RATE_LIMIT_WINDOW_MS', '60000'), 10),
+    RATE_LIMIT_MAX:       parseInt(get('RATE_LIMIT_MAX_REQUESTS', '100'), 10),
 
-    // Zoho CRM
-    ZOHO_CLIENT_ID:     optional('ZOHO_CLIENT_ID'),
-    ZOHO_CLIENT_SECRET: optional('ZOHO_CLIENT_SECRET'),
-    ZOHO_REFRESH_TOKEN: optional('ZOHO_REFRESH_TOKEN'),
-    ZOHO_REDIRECT_URI:  optional('ZOHO_REDIRECT_URI', 'https://www.zohoapis.in/crm/v2'),
-    ZOHO_ACCOUNTS_URL:  optional('ZOHO_ACCOUNTS_URL', 'https://accounts.zoho.in/oauth/v2/token'),
-    ZOHO_API_DOMAIN:    optional('ZOHO_API_DOMAIN',   'https://www.zohoapis.in'),
+    // Zoho OAuth
+    ZOHO_CLIENT_ID:     get('ZOHO_CLIENT_ID'),
+    ZOHO_CLIENT_SECRET: get('ZOHO_CLIENT_SECRET'),
+    ZOHO_REFRESH_TOKEN: get('ZOHO_REFRESH_TOKEN'),
+    ZOHO_REDIRECT_URI:  get('ZOHO_REDIRECT_URI'),
+    ZOHO_ACCOUNTS_URL:  get('ZOHO_ACCOUNTS_URL', 'https://accounts.zoho.in/oauth/v2/token'),
+    ZOHO_API_DOMAIN:    get('ZOHO_API_DOMAIN', 'https://www.zohoapis.in'),
 
-    // Storage
-    STORAGE_BASE_PATH: optional('STORAGE_BASE_PATH', './storage/crm-data'),
+    // SSL — explicit opt-in to bypass certificate verification
+    ZOHO_SKIP_SSL_VERIFY: get('ZOHO_SKIP_SSL_VERIFY', 'false'),
+
+    // Storage on RDP / VM
+    ATTACHMENT_DIR: get('ATTACHMENT_DIR', './storage/attachments'),
 
     // Logging
-    LOG_LEVEL: optional('LOG_LEVEL', 'info'),
-    LOG_DIR:   optional('LOG_DIR', './logs'),
+    LOG_LEVEL: get('LOG_LEVEL', 'info'),
+    LOG_DIR:   get('LOG_DIR', './logs'),
 
-    // Helpers
+    // Cluster
+    CLUSTER_WORKERS: get('CLUSTER_WORKERS', ''),
+
+    // Shortcuts
     isDev:  () => env.NODE_ENV === 'development',
     isProd: () => env.NODE_ENV === 'production',
-
-    // Storage
-    ATTACHMENT_STORAGE_PATH: optional('ATTACHMENT_STORAGE_PATH', './storage/attachments'),
-
 };
+
+// ── Shared HTTPS agent ─────────────────────────────────────────────────────
+// Bypasses SSL when:
+//   1. ZOHO_SKIP_SSL_VERIFY=true   (explicit, recommended for self-signed certs)
+//   2. ZOHO_API_DOMAIN is a private / non-standard host
+const isPrivateDomain = (() => {
+    try {
+        const host = new URL(env.ZOHO_API_DOMAIN).hostname;
+        return (
+            !host.endsWith('.zohoapis.in') &&
+            !host.endsWith('.zohoapis.com') &&
+            !host.endsWith('.zoho.in') &&
+            !host.endsWith('.zoho.com')
+        );
+    } catch {
+        return false;
+    }
+})();
+
+const skipSSL = env.ZOHO_SKIP_SSL_VERIFY === 'true' || isPrivateDomain;
+
+export const zohoHttpsAgent = skipSSL
+    ? new https.Agent({ rejectUnauthorized: false })
+    : undefined;

@@ -1,25 +1,12 @@
 import axios from 'axios';
-import https from 'https';
 import { ICRMService } from '../interfaces/ICRMService.js';
-import { env } from '../config/env.js';
+import { env, zohoHttpsAgent } from '../config/env.js';
 import logger from '../utils/logger.js';
 import cache from '../store/CacheStore.js';
 
 const ZOHO_TOKEN_CACHE_KEY = 'zoho:access_token';
 const ZOHO_BASE_URL        = `${env.ZOHO_API_DOMAIN}/crm/v2`;
 const RECORDS_CACHE_TTL    = 300; // 5 minutes — prevents hammering Zoho on repeated requests
-
-// Production: skip SSL verification (RDP has no internet for CRL checks)
-// Development: normal SSL verification
-const httpsAgent = env.isProd()
-    ? new https.Agent({ rejectUnauthorized: false })
-    : undefined;
-
-// Production: longer timeout (RDP network is slower)
-// Development: normal timeout
-const TOKEN_TIMEOUT   = env.isProd() ? 60_000 : 10_000;
-const RECORDS_TIMEOUT = env.isProd() ? 60_000 : 30_000;
-const SINGLE_TIMEOUT  = env.isProd() ? 60_000 : 15_000;
 
 /**
  * ZohoService — concrete implementation of ICRMService.
@@ -40,7 +27,27 @@ class ZohoService extends ICRMService {
     }
 
     async _refreshAccessToken() {
-        logger.info('Zoho: refreshing access token');
+        logger.info('Zoho: refreshing access token', {
+            accountsUrl:  env.ZOHO_ACCOUNTS_URL,
+            clientId:     env.ZOHO_CLIENT_ID ? `${env.ZOHO_CLIENT_ID.slice(0, 8)}...` : 'MISSING',
+            redirectUri:  env.ZOHO_REDIRECT_URI,
+            hasRefreshToken: !!env.ZOHO_REFRESH_TOKEN,
+            sslBypass:    !!zohoHttpsAgent,
+        });
+
+        // ── Guard: catch placeholder / empty credentials early ──────────
+        if (!env.ZOHO_CLIENT_ID || env.ZOHO_CLIENT_ID.startsWith('<')) {
+            throw new Error(
+                'ZOHO_CLIENT_ID is missing or still a placeholder. ' +
+                'Check your .env file and ensure real credentials are set.'
+            );
+        }
+        if (!env.ZOHO_REFRESH_TOKEN || env.ZOHO_REFRESH_TOKEN.startsWith('<')) {
+            throw new Error(
+                'ZOHO_REFRESH_TOKEN is missing or still a placeholder. ' +
+                'Generate a fresh refresh token from the Zoho API Console.'
+            );
+        }
 
         const params = new URLSearchParams({
             refresh_token: env.ZOHO_REFRESH_TOKEN,
@@ -53,11 +60,18 @@ class ZohoService extends ICRMService {
         try {
             const { data } = await axios.post(env.ZOHO_ACCOUNTS_URL, params.toString(), {
                 headers:    { 'Content-Type': 'application/x-www-form-urlencoded' },
-                httpsAgent,
-                timeout:    TOKEN_TIMEOUT,
+                httpsAgent: zohoHttpsAgent,
+                timeout:    10_000,
             });
 
             if (!data.access_token) {
+                // Log the FULL Zoho error response for debugging
+                logger.error('Zoho: token response has no access_token', {
+                    zohoResponse: data,
+                    accountsUrl:  env.ZOHO_ACCOUNTS_URL,
+                    clientId:     env.ZOHO_CLIENT_ID ? `${env.ZOHO_CLIENT_ID.slice(0, 8)}...` : 'MISSING',
+                    redirectUri:  env.ZOHO_REDIRECT_URI,
+                });
                 throw new Error(`Zoho token refresh failed: ${JSON.stringify(data)}`);
             }
 
@@ -67,7 +81,15 @@ class ZohoService extends ICRMService {
             return data.access_token;
 
         } catch (err) {
-            logger.error('Zoho: token refresh error', { message: err.message });
+            // Enhanced error logging — capture Zoho's response body when available
+            const errDetail = {
+                message:     err.message,
+                status:      err.response?.status,
+                zohoError:   err.response?.data,
+                accountsUrl: env.ZOHO_ACCOUNTS_URL,
+                code:        err.code,  // e.g. ECONNREFUSED, UNABLE_TO_VERIFY_LEAF_SIGNATURE
+            };
+            logger.error('Zoho: token refresh error', errDetail);
             throw err;
         }
     }
@@ -94,9 +116,9 @@ class ZohoService extends ICRMService {
         try {
             const { data: response } = await axios.get(`${ZOHO_BASE_URL}/${module}`, {
                 headers:    { Authorization: `Zoho-oauthtoken ${token}` },
-                httpsAgent,
+                httpsAgent: zohoHttpsAgent,
                 params,
-                timeout:    RECORDS_TIMEOUT,
+                timeout:    30_000,
             });
 
             const result = {
@@ -115,6 +137,7 @@ class ZohoService extends ICRMService {
                 module,
                 status:  err.response?.status,
                 message: err.message,
+                code:    err.code,
             });
             throw err;
         }
@@ -127,14 +150,14 @@ class ZohoService extends ICRMService {
         try {
             const { data: response } = await axios.get(`${ZOHO_BASE_URL}/${module}/${id}`, {
                 headers:    { Authorization: `Zoho-oauthtoken ${token}` },
-                httpsAgent,
-                timeout:    SINGLE_TIMEOUT,
+                httpsAgent: zohoHttpsAgent,
+                timeout:    15_000,
             });
             return response.data?.[0] || null;
 
         } catch (err) {
             if (err.response?.status === 401) cache.del(ZOHO_TOKEN_CACHE_KEY);
-            logger.error('Zoho: fetchRecordById error', { module, id, message: err.message });
+            logger.error('Zoho: fetchRecordById error', { module, id, message: err.message, code: err.code });
             throw err;
         }
     }

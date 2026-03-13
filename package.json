@@ -1,36 +1,27 @@
 {
-    "name": "sandbox-api",
+    "name": "zoho-attachment-api",
     "version": "1.0.0",
-    "description": "Production-grade API server for CRM data fetching and RDP storage",
+    "description": "Node.js API to download Zoho CRM attachments and store them on RDP/VM",
     "type": "module",
     "main": "server.js",
     "scripts": {
-        "start": "node server.js",
-        "dev": "nodemon server.js",
-        "lint": "eslint src/ server.js",
-        "test": "node --experimental-vm-modules node_modules/.bin/jest --coverage"
+        "start": "cross-env NODE_ENV=production node server.js",
+        "dev": "cross-env NODE_ENV=development node --watch server.js"
     },
     "dependencies": {
-        "axios": "^1.6.2",
-        "compression": "^1.7.4",
+        "axios": "^1.7.9",
+        "compression": "^1.7.5",
         "cors": "^2.8.5",
-        "dotenv": "^16.3.1",
-        "express": "^4.18.2",
-        "express-rate-limit": "^7.1.5",
+        "cross-env": "^7.0.3",
+        "dotenv": "^16.4.7",
+        "express": "^4.21.2",
+        "express-rate-limit": "^7.5.0",
         "fs-extra": "^11.2.0",
-        "helmet": "^7.1.0",
-        "joi": "^17.11.0",
+        "helmet": "^8.0.0",
         "morgan": "^1.10.0",
         "node-cache": "^5.1.2",
-        "swagger-jsdoc": "^6.2.8",
-        "swagger-ui-express": "^5.0.1",
-        "uuid": "^9.0.1",
-        "winston": "^3.11.0",
-        "winston-daily-rotate-file": "^4.7.1"
-    },
-    "devDependencies": {
-        "eslint": "^8.56.0",
-        "jest": "^29.7.0",
-        "nodemon": "^3.0.2"
+        "uuid": "^11.1.0",
+        "winston": "^3.17.0",
+        "winston-daily-rotate-file": "^5.0.0"
     }
 }

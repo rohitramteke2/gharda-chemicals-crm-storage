@@ -1,45 +1,33 @@
 import logger from '../utils/logger.js';
-import { env } from '../config/env.js';
 
-export const errorHandler = (err, req, res, next) => { // eslint-disable-line no-unused-vars
-    const statusCode = err.statusCode || err.status || 500;
-    const requestId  = req.id || 'unknown';
+/**
+ * Express error-handling middleware (must have 4 params).
+ * Catches anything thrown or passed to next(err) in controllers/services.
+ */
+export function errorHandler(err, req, res, _next) {
+    // Pull status from Axios errors or from a custom .statusCode property
+    const status = err.response?.status || err.statusCode || 500;
 
-    const logPayload = {
-        requestId,
-        method:     req.method,
-        url:        req.originalUrl,
-        statusCode,
-        message:    err.message,
-        ...(env.isDev() && { stack: err.stack }),
-    };
-
-    if (statusCode >= 500) {
-        logger.error('Server error', logPayload);
-    } else {
-        logger.warn('Client error', logPayload);
-    }
-
-    const body = {
-        success:   false,
-        requestId,
+    const payload = {
+        success: false,
         error: {
-            code:    err.code    || 'INTERNAL_ERROR',
-            message: err.expose  ? err.message : 'An unexpected error occurred',
+            code:    err.code || 'INTERNAL_ERROR',
+            message: err.message || 'Something went wrong.',
         },
     };
 
-    if (env.isDev()) body.error.stack = err.stack;
-
-    res.status(statusCode).json(body);
-};
-
-export class AppError extends Error {
-    constructor(message, statusCode = 500, code = 'APP_ERROR') {
-        super(message);
-        this.name       = 'AppError';
-        this.statusCode = statusCode;
-        this.code       = code;
-        this.expose     = statusCode < 500;
+    // Attach Zoho's error body when available (helps debugging)
+    if (err.response?.data) {
+        payload.error.zoho = err.response.data;
     }
+
+    logger.error(err.message, {
+        method:    req.method,
+        url:       req.originalUrl,
+        requestId: req.id,
+        statusCode: status,
+        stack:     err.stack,
+    });
+
+    res.status(status).json(payload);
 }

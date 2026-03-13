@@ -1,24 +1,12 @@
 import axios from 'axios';
-import https from 'https';
 import fse from 'fs-extra';
 import path from 'path';
 import { IAttachmentService } from '../interfaces/IAttachmentService.js';
-import { env } from '../config/env.js';
+import { env, zohoHttpsAgent } from '../config/env.js';
 import logger from '../utils/logger.js';
 import zohoService from './ZohoService.js';
 
 const ZOHO_BASE_URL = `${env.ZOHO_API_DOMAIN}/crm/v2`;
-
-// Production: skip SSL verification (RDP has no internet for CRL checks)
-// Development: normal SSL verification
-const httpsAgent = env.isProd()
-    ? new https.Agent({ rejectUnauthorized: false })
-    : undefined;
-
-// Production: longer timeout (RDP network is slower)
-// Development: normal timeout
-const LIST_TIMEOUT     = env.isProd() ? 60_000 : 15_000;
-const DOWNLOAD_TIMEOUT = env.isProd() ? 120_000 : 60_000;
 
 /**
  * AttachmentService — fetches and downloads Zoho CRM attachments to RDP disk.
@@ -53,8 +41,8 @@ class AttachmentService extends IAttachmentService {
                 `${ZOHO_BASE_URL}/${module}/${recordId}/Attachments`,
                 {
                     headers:    { Authorization: `Zoho-oauthtoken ${token}` },
-                    httpsAgent,
-                    timeout:    LIST_TIMEOUT,
+                    httpsAgent: zohoHttpsAgent,
+                    timeout:    15_000,
                 }
             );
 
@@ -111,9 +99,9 @@ class AttachmentService extends IAttachmentService {
                 `${ZOHO_BASE_URL}/${module}/${recordId}/Attachments/${attachmentId}`,
                 {
                     headers:      { Authorization: `Zoho-oauthtoken ${token}` },
-                    httpsAgent,
+                    httpsAgent: zohoHttpsAgent,
                     responseType: 'stream',
-                    timeout:      DOWNLOAD_TIMEOUT,
+                    timeout:      60_000,
                 }
             );
 
