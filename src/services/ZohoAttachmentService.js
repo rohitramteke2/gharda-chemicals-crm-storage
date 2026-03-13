@@ -1,6 +1,7 @@
 import axios from 'axios';
 import fse from 'fs-extra';
 import path from 'path';
+import FormData from 'form-data';
 import { env, zohoHttpsAgent } from '../config/env.js';
 import logger from '../utils/logger.js';
 import auth from './ZohoAuthService.js';
@@ -141,6 +142,74 @@ class ZohoAttachmentService {
             downloaded: results.filter(r => r.status === 'ok').length,
             failed:     results.filter(r => r.status === 'failed').length,
             attachments: results,
+        };
+    }
+
+    // ── 4. Upload a file to Zoho CRM + save to RDP disk ───────────────────
+    async uploadAttachment(module, recordId, file) {
+        const token    = await auth.getToken();
+        const fileName = file.originalname;
+
+        logger.info('Attachments: uploading to Zoho', { module, recordId, fileName, size: file.size });
+
+        // ── Upload to Zoho CRM ─────────────────────────────────────────
+        const form = new FormData();
+        form.append('file', file.buffer, {
+            filename:    fileName,
+            contentType: file.mimetype,
+        });
+
+        let zohoResponse;
+        try {
+            const { data } = await axios.post(
+                `${BASE}/${module}/${recordId}/Attachments`,
+                form,
+                {
+                    headers: {
+                        Authorization: `Zoho-oauthtoken ${token}`,
+                        ...form.getHeaders(),
+                    },
+                    httpsAgent: zohoHttpsAgent,
+                    timeout:    120_000,
+                    maxContentLength: Infinity,
+                    maxBodyLength:    Infinity,
+                },
+            );
+
+            zohoResponse = data;
+            logger.info('Attachments: uploaded to Zoho', { module, recordId, zohoResponse });
+
+        } catch (err) {
+            if (err.response?.status === 401) auth.clearToken();
+            logger.error('Attachments: upload to Zoho failed', {
+                module, recordId, fileName,
+                status:  err.response?.status,
+                message: err.message,
+                zoho:    err.response?.data,
+            });
+            throw err;
+        }
+
+        // ── Save to RDP disk ───────────────────────────────────────────
+        const dir      = path.join(this.storageRoot, module, recordId);
+        const filePath = path.join(dir, fileName);
+
+        await fse.ensureDir(dir);
+        await fse.writeFile(filePath, file.buffer);
+
+        const attachmentId = zohoResponse?.data?.[0]?.details?.id || null;
+
+        logger.info('Attachments: saved to disk', { module, recordId, fileName, filePath });
+
+        return {
+            module,
+            recordId,
+            attachmentId,
+            fileName,
+            filePath,
+            size:       file.size,
+            zohoStatus: zohoResponse?.data?.[0]?.status || 'unknown',
+            message:    zohoResponse?.data?.[0]?.message || null,
         };
     }
 }

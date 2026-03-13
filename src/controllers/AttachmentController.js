@@ -68,6 +68,31 @@ class AttachmentController {
             next(err);
         }
     }
+
+    /**
+     * POST /attachments/:module/:recordId/upload
+     * Upload a file → attach to Zoho CRM record + save to RDP disk → return both.
+     *
+     * Multipart form-data with field name "file".
+     */
+    async upload(req, res, next) {
+        try {
+            const { module, recordId } = req.params;
+
+            if (!req.file) {
+                return res.status(400).json({
+                    success: false,
+                    error: { code: 'NO_FILE', message: 'No file provided. Send a file with field name "file".' },
+                });
+            }
+
+            const result = await attachmentService.uploadAttachment(module, recordId, req.file);
+
+            res.json({ success: true, data: result });
+        } catch (err) {
+            next(err);
+        }
+    }
 }
 
 export default new AttachmentController();
