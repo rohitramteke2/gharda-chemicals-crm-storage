@@ -1,0 +1,22 @@
+I notice the user prompt is empty, so I cannot determine the primary language. However, based on the thinking block being in English, here is my summary: Pivoted to Task Scheduler after evaluating service creation alternatives
+I notice the user prompt is empty, so I cannot determine the primary language. However, based on the thinking block being in English, here is my summary: Pivoted to Task Scheduler after evaluating service creation alternatives
+NSSM site is down. No worries — let's use Task Scheduler instead, works just as well:
+
+powershell
+$action = New-ScheduledTaskAction -Execute "C:\Program Files\nodejs\node.exe" -Argument "server.js" -WorkingDirectory "C:\Users\zoho.crm\Desktop\production\gharda-crm-api"
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName "ZohoAPI" -Action $action -Trigger $trigger -Settings $settings -User "zoho.crm" -RunLevel Highest -Description "Zoho CRM API Server"
+Then set the environment variable for production:
+
+powershell
+[System.Environment]::SetEnvironmentVariable("NODE_ENV", "production", "Machine")
+Now start it manually to test:
+
+powershell
+Start-ScheduledTask -TaskName "ZohoAPI"
+Verify:
+
+powershell
+Get-ScheduledTask -TaskName "ZohoAPI" | Select-Object State
+Should say Running. Then hit the URL from your browser to confirm. Share the output.
