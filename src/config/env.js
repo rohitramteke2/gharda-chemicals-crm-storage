@@ -28,6 +28,9 @@ export const env = {
     // Storage on RDP / VM
     ATTACHMENT_DIR: get('ATTACHMENT_DIR', './storage/attachments'),
 
+    // Public base URL for serving downloaded files
+    PUBLIC_BASE_URL: get('PUBLIC_BASE_URL', 'https://zoho.gharda.com:14443/production'),
+
     // Logging
     LOG_LEVEL: get('LOG_LEVEL', 'info'),
     LOG_DIR:   get('LOG_DIR', './logs'),

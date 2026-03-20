@@ -12,15 +12,26 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { apiLimiter, apiKeyAuth } from './middleware/auth.js';
 import auth from './services/ZohoAuthService.js';
 
+import path from 'path';
 import attachmentRoutes from './routes/attachments.js';
 import crmRoutes from './routes/crm.js';
+import accountRoutes from './routes/accounts.js';
+import pageRoutes from './routes/pages.js';
+import { renderError } from './views/pages.js';
 
 export function createApp() {
     const app = express();
     const prefix = `/api/${env.API_VERSION}`;
 
     // ── Security ────────────────────────────────────────────────────────
-    app.use(helmet());
+    app.use(helmet({
+        contentSecurityPolicy: {
+            directives: {
+                ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+                'style-src': ["'self'", "'unsafe-inline'"],
+            },
+        },
+    }));
     app.use(cors({ origin: env.isProd() ? [] : '*', methods: ['GET', 'POST'] }));
     app.use(compression());
 
@@ -43,6 +54,9 @@ export function createApp() {
             env: env.NODE_ENV, timestamp: new Date().toISOString(),
         });
     });
+
+    // ── Root redirect → File Manager dashboard ──────────────────────────
+    app.get('/', (_req, res) => res.redirect('/pages/accounts'));
 
     app.get('/debug/zoho', async (_req, res) => {
         const checks = {
@@ -85,6 +99,16 @@ export function createApp() {
         res.status(allOk ? 200 : 503).json(checks);
     });
 
+    // ── Serve downloaded files publicly via /storage/{module}/{SAP_ID}/ ─
+    const storageDir = path.resolve(env.ATTACHMENT_DIR);
+    app.use('/storage', express.static(storageDir, {
+        dotfiles: 'deny',
+        index:    false,
+    }));
+
+    // ── HTML Pages — File browser UI (public, no auth) ──────────────────
+    app.use('/pages', pageRoutes);
+
     // ════════════════════════════════════════════════════════════════════
     //  PROTECTED ROUTES (rate limit + API key)
     // ════════════════════════════════════════════════════════════════════
@@ -95,11 +119,23 @@ export function createApp() {
     // PRIMARY — Attachments (the whole point of this API)
     app.use(`${prefix}/attachments`, attachmentRoutes);
 
+    // ACCOUNTS — File Upload field sync (Distributor layout)
+    app.use(`${prefix}/accounts`, accountRoutes);
+
     // EXTRA — CRM records
     app.use(`${prefix}/crm`, crmRoutes);
 
     // ── 404 ─────────────────────────────────────────────────────────────
-    app.use((_req, res) => {
+    app.use((req, res) => {
+        // Return HTML for browser requests, JSON for API requests
+        const wantsHtml = req.headers.accept?.includes('text/html');
+
+        if (wantsHtml) {
+            return res.status(404).send(renderError(404, 'Page Not Found',
+                `The URL <code>${req.originalUrl}</code> doesn't exist on this server.`
+            ));
+        }
+
         res.status(404).json({
             success: false,
             error: { code: 'NOT_FOUND', message: 'Route not found.' },

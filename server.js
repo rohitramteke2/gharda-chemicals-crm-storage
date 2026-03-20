@@ -32,9 +32,12 @@ import { env, zohoHttpsAgent } from './src/config/env.js';
 import logger from './src/utils/logger.js';
 
 const PORT    = env.PORT;
-const WORKERS = env.CLUSTER_WORKERS
-    ? parseInt(env.CLUSTER_WORKERS, 10)
-    : Math.min(os.cpus().length, 4);   // cap at 4 by default
+// const WORKERS = env.CLUSTER_WORKERS
+//     ? parseInt(env.CLUSTER_WORKERS, 10)
+//     : Math.min(os.cpus().length, 4);   // cap at 4 by default
+
+const WORKERS = 1;
+
 
 // ── Primary process ────────────────────────────────────────────────────────
 if (cluster.isPrimary) {
