@@ -55,6 +55,13 @@ const MIME_TO_EXT = {
     'application/octet-stream':     '.bin',
 };
 
+// ── Helper: convert local file path → public HTTPS URL ──────────────────────
+function buildFileUrl(storageRoot, filePath) {
+    const baseUrl  = env.PUBLIC_BASE_URL || `https://zoho.gharda.com:14443/production`;
+    const relative = path.relative(storageRoot, filePath).replace(/\\/g, '/');
+    return `${baseUrl}/storage/${relative}`;
+}
+
 
 class AccountFileUploadService {
 
@@ -139,7 +146,7 @@ class AccountFileUploadService {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  3. Download a single file from a File Upload / Image Upload field
+    //  3. Download a single file from a File Upload field
     // ═══════════════════════════════════════════════════════════════════════
 
     async downloadFieldFile(recordId, fileId, fileName, destDir, retries = 3) {
@@ -208,6 +215,7 @@ class AccountFileUploadService {
                 fileId,
                 fileName: finalFileName,
                 filePath: finalDest,
+                fileUrl:  buildFileUrl(this.storageRoot, finalDest),  // ← public URL
                 size:     stat.size,
                 status:   'ok',
             };
@@ -260,10 +268,11 @@ class AccountFileUploadService {
             return {
                 fileId,
                 fileName,
-                filePath: null,
-                size:     0,
-                status:   'failed',
-                error:    errMsg,
+                filePath:  null,
+                fileUrl:   null,
+                size:      0,
+                status:    'failed',
+                error:     errMsg,
                 zohoError,
             };
         }
@@ -336,6 +345,7 @@ class AccountFileUploadService {
                     fileId:   fieldApiName,
                     fileName,
                     filePath: finalDest,
+                    fileUrl:  buildFileUrl(this.storageRoot, finalDest),  // ← public URL
                     size:     stat.size,
                     status:   'ok',
                 };
@@ -375,6 +385,7 @@ class AccountFileUploadService {
                         fileId:   fieldApiName,
                         fileName: fieldApiName,
                         filePath: null,
+                        fileUrl:  null,
                         size:     0,
                         status:   'no_image',
                         error:    'No image uploaded in this field (204)',
@@ -394,6 +405,7 @@ class AccountFileUploadService {
                     fileId:   fieldApiName,
                     fileName: fieldApiName,
                     filePath: null,
+                    fileUrl:  null,
                     size:     0,
                     status:   'failed',
                     error:    err.message,
@@ -510,7 +522,6 @@ class AccountFileUploadService {
             if (Array.isArray(fieldValue)) {
                 files = fieldValue;
             } else if (typeof fieldValue === 'string') {
-                // Image Upload fields may return a string ID directly
                 files = [{ id: fieldValue, file_Name: `${field.apiName}` }];
             } else if (typeof fieldValue === 'object' && fieldValue !== null) {
                 files = [fieldValue];
@@ -529,6 +540,8 @@ class AccountFileUploadService {
                     fieldFiles.push({
                         fileId:   null,
                         fileName: fileName,
+                        filePath: null,
+                        fileUrl:  null,
                         status:   'failed',
                         error:    'File entry has no ID — cannot download',
                     });
@@ -567,7 +580,7 @@ class AccountFileUploadService {
             });
         }
 
-        // ── Build public URL ────────────────────────────────────────────
+        // ── Build public storage URL ────────────────────────────────────
         const baseUrl   = env.PUBLIC_BASE_URL || `https://zoho.gharda.com:14443/production`;
         const publicUrl = `${baseUrl}/storage/Accounts/${folderName}`;
 
