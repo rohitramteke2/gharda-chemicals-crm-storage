@@ -2,11 +2,19 @@ import rateLimit from 'express-rate-limit';
 import { env } from '../config/env.js';
 import logger from '../utils/logger.js';
 
+// When behind IIS reverse proxy, req.ip can include a port e.g. "27.107.69.106:58042"
+// express-rate-limit rejects IPs with ports, so we strip it here.
+const keyGenerator = (req) => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    return ip.replace(/:\d+$/, '').replace(/^::ffff:/, '');
+};
+
 export const apiLimiter = rateLimit({
     windowMs:        env.RATE_LIMIT_WINDOW_MS,
     max:             env.RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders:   false,
+    keyGenerator,                                          // ← ADD
     handler: (req, res) => {
         logger.warn('Rate limit exceeded', { ip: req.ip, url: req.originalUrl });
         res.status(429).json({
@@ -24,6 +32,7 @@ export const strictLimiter = rateLimit({
     max:             10,
     standardHeaders: true,
     legacyHeaders:   false,
+    keyGenerator,                                          // ← ADD
     handler: (req, res) => {
         logger.warn('Strict rate limit exceeded', { ip: req.ip, url: req.originalUrl });
         res.status(429).json({

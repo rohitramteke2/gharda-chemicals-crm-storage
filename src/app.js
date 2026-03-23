@@ -21,6 +21,7 @@ import { renderError } from './views/pages.js';
 
 export function createApp() {
     const app = express();
+    app.set("trust proxy", 1);
     const prefix = `/api/${env.API_VERSION}`;
 
     // ── Security ────────────────────────────────────────────────────────
