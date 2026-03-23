@@ -58,6 +58,10 @@ export function createApp() {
     // ── Root redirect → File Manager dashboard ──────────────────────────
     app.get('/', (_req, res) => res.redirect('/pages/accounts'));
 
+    // ── Cache for debug probes (avoid hammering Zoho) ──────────────────
+    let _probeCache = { result: null, expires: 0 };
+    const PROBE_CACHE_TTL = 60_000; // 1 minute
+
     app.get('/debug/zoho', async (_req, res) => {
         const checks = {
             timestamp: new Date().toISOString(),
@@ -74,25 +78,34 @@ export function createApp() {
             tests: {},
         };
 
-        // Test 1: accounts URL reachable?
-        checks.tests.accounts = await probe(
-            env.ZOHO_ACCOUNTS_URL.replace('/oauth/v2/token', '')
-        );
+        // Use cached probe results if fresh (prevents rate limiting)
+        if (_probeCache.result && Date.now() < _probeCache.expires) {
+            checks.tests = _probeCache.result;
+            checks._cached = true;
+        } else {
+            // Test 1: accounts URL reachable?
+            checks.tests.accounts = await probe(
+                env.ZOHO_ACCOUNTS_URL.replace('/oauth/v2/token', '')
+            );
 
-        // Test 2: API domain reachable?
-        checks.tests.apiDomain = await probe(
-            `${env.ZOHO_API_DOMAIN}/crm/v2`
-        );
+            // Test 2: API domain reachable?
+            checks.tests.apiDomain = await probe(
+                `${env.ZOHO_API_DOMAIN}/crm/v2`
+            );
 
-        // Test 3: actual token refresh
-        try {
-            const token = await auth.getToken();
-            checks.tests.tokenRefresh = { ok: true, tokenPrefix: token.slice(0, 12) + '…' };
-        } catch (err) {
-            checks.tests.tokenRefresh = {
-                ok: false, error: err.message,
-                code: err.code, zoho: err.response?.data || null,
-            };
+            // Test 3: actual token refresh (uses cache — only hits Zoho if expired)
+            try {
+                const token = await auth.getToken();
+                checks.tests.tokenRefresh = { ok: true, tokenPrefix: token.slice(0, 12) + '…' };
+            } catch (err) {
+                checks.tests.tokenRefresh = {
+                    ok: false, error: err.message,
+                    code: err.code, zoho: err.response?.data || null,
+                };
+            }
+
+            // Cache the results for 1 minute
+            _probeCache = { result: { ...checks.tests }, expires: Date.now() + PROBE_CACHE_TTL };
         }
 
         const allOk = Object.values(checks.tests).every(t => t.ok);
