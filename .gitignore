@@ -1,8 +1,7 @@
 node_modules/
-storage/
-logs/
 .env
-.env.*.local
+.env.production
+.env.development
+logs/
+storage/
 *.log
-zips/
-*.zip

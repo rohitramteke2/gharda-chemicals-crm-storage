@@ -5,6 +5,7 @@ import compression from 'compression';
 import morgan from 'morgan';
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
+import path from 'path';
 
 import { env, zohoHttpsAgent } from './config/env.js';
 import logger from './utils/logger.js';
@@ -12,19 +13,16 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { apiLimiter, apiKeyAuth } from './middleware/auth.js';
 import auth from './services/ZohoAuthService.js';
 
-import path from 'path';
-import attachmentRoutes from './routes/attachments.js';
-import crmRoutes from './routes/crm.js';
 import accountRoutes from './routes/accounts.js';
 import pageRoutes from './routes/pages.js';
 import { renderError } from './views/pages.js';
 
 export function createApp() {
     const app = express();
-    app.set("trust proxy", 1);
+    app.set('trust proxy', 1);
     const prefix = `/api/${env.API_VERSION}`;
 
-    // ── Security ────────────────────────────────────────────────────────
+    // ── Security ────────────────────────────────────────────────────────────
     app.use(helmet({
         contentSecurityPolicy: {
             directives: {
@@ -36,32 +34,35 @@ export function createApp() {
     app.use(cors({ origin: env.isProd() ? [] : '*', methods: ['GET', 'POST'] }));
     app.use(compression());
 
-    // ── Body parsing ────────────────────────────────────────────────────
+    // ── Body parsing ─────────────────────────────────────────────────────────
     app.use(express.json({ limit: '2mb' }));
 
-    // ── Request ID ──────────────────────────────────────────────────────
+    // ── Request ID ───────────────────────────────────────────────────────────
     app.use((req, _res, next) => { req.id = uuidv4(); next(); });
 
-    // ── HTTP access log ─────────────────────────────────────────────────
+    // ── HTTP access log ──────────────────────────────────────────────────────
     app.use(morgan('short', { stream: { write: (m) => logger.http(m.trim()) } }));
 
-    // ════════════════════════════════════════════════════════════════════
-    //  PUBLIC ROUTES (no auth)
-    // ════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    //  PUBLIC ROUTES (no auth required)
+    // ════════════════════════════════════════════════════════════════════════
 
+    // Health check
     app.get('/health', (_req, res) => {
         res.json({
-            status: 'ok', version: env.API_VERSION,
-            env: env.NODE_ENV, timestamp: new Date().toISOString(),
+            status: 'ok',
+            version: env.API_VERSION,
+            env: env.NODE_ENV,
+            timestamp: new Date().toISOString(),
         });
     });
 
-    // ── Root redirect → File Manager dashboard ──────────────────────────
+    // Root → File Manager dashboard
     app.get('/', (_req, res) => res.redirect('/pages/accounts'));
 
-    // ── Cache for debug probes (avoid hammering Zoho) ──────────────────
+    // ── Debug probe (cached — won't hammer Zoho) ────────────────────────────
     let _probeCache = { result: null, expires: 0 };
-    const PROBE_CACHE_TTL = 60_000; // 1 minute
+    const PROBE_CACHE_TTL = 60_000;
 
     app.get('/debug/zoho', async (_req, res) => {
         const checks = {
@@ -79,22 +80,15 @@ export function createApp() {
             tests: {},
         };
 
-        // Use cached probe results if fresh (prevents rate limiting)
         if (_probeCache.result && Date.now() < _probeCache.expires) {
             checks.tests = _probeCache.result;
             checks._cached = true;
         } else {
-            // Test 1: accounts URL reachable?
             checks.tests.accounts = await probe(
                 env.ZOHO_ACCOUNTS_URL.replace('/oauth/v2/token', '')
             );
+            checks.tests.apiDomain = await probe(`${env.ZOHO_API_DOMAIN}/crm/v2`);
 
-            // Test 2: API domain reachable?
-            checks.tests.apiDomain = await probe(
-                `${env.ZOHO_API_DOMAIN}/crm/v2`
-            );
-
-            // Test 3: actual token refresh (uses cache — only hits Zoho if expired)
             try {
                 const token = await auth.getToken();
                 checks.tests.tokenRefresh = { ok: true, tokenPrefix: token.slice(0, 12) + '…' };
@@ -105,7 +99,6 @@ export function createApp() {
                 };
             }
 
-            // Cache the results for 1 minute
             _probeCache = { result: { ...checks.tests }, expires: Date.now() + PROBE_CACHE_TTL };
         }
 
@@ -113,35 +106,28 @@ export function createApp() {
         res.status(allOk ? 200 : 503).json(checks);
     });
 
-    // ── Serve downloaded files publicly via /storage/{module}/{SAP_ID}/ ─
+    // ── Serve downloaded files via /storage/{SAP_ID}/{field_name}/ ──────────
     const storageDir = path.resolve(env.ATTACHMENT_DIR);
     app.use('/storage', express.static(storageDir, {
         dotfiles: 'deny',
         index:    false,
     }));
 
-    // ── HTML Pages — File browser UI (public, no auth) ──────────────────
+    // ── HTML Pages — File browser UI (no auth) ───────────────────────────────
     app.use('/pages', pageRoutes);
 
-    // ════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
     //  PROTECTED ROUTES (rate limit + API key)
-    // ════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
 
     app.use(prefix, apiLimiter);
     app.use(prefix, apiKeyAuth);
 
-    // PRIMARY — Attachments (the whole point of this API)
-    app.use(`${prefix}/attachments`, attachmentRoutes);
-
-    // ACCOUNTS — File Upload field sync (Distributor layout)
+    // ── Accounts — all endpoints ─────────────────────────────────────────────
     app.use(`${prefix}/accounts`, accountRoutes);
 
-    // EXTRA — CRM records
-    app.use(`${prefix}/crm`, crmRoutes);
-
-    // ── 404 ─────────────────────────────────────────────────────────────
+    // ── 404 ──────────────────────────────────────────────────────────────────
     app.use((req, res) => {
-        // Return HTML for browser requests, JSON for API requests
         const wantsHtml = req.headers.accept?.includes('text/html');
 
         if (wantsHtml) {
@@ -156,13 +142,13 @@ export function createApp() {
         });
     });
 
-    // ── Global error handler (must be last) ─────────────────────────────
+    // ── Global error handler (must be last) ──────────────────────────────────
     app.use(errorHandler);
 
     return app;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function maskVal(name, val) {
     if (!val) return 'MISSING';
