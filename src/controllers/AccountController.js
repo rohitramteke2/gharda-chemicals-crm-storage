@@ -538,9 +538,18 @@ class AccountController {
      */
     async webhookSync(req, res, next) {
         try {
-            const { recordId } = req.params;
+            // Accept ID from URL param (:recordId) OR from request body (id)
+            // This supports both direct API calls and Zoho CRM webhook triggers
+            const recordId = req.params.recordId || req.body?.id || req.query?.id;
 
-            logger.info('AccountController: webhookSync', { recordId });
+            if (!recordId) {
+                return res.status(400).json({
+                    success: false,
+                    error: { code: 'MISSING_ID', message: 'Record ID is required — pass as URL param or body field "id".' },
+                });
+            }
+
+            logger.info('AccountController: webhookSync', { recordId, source: req.params.recordId ? 'url' : 'body' });
 
             const result = await accountService.processSingleAccount(recordId);
 

@@ -269,7 +269,11 @@ router.post(
  *
  * Example: POST /api/v1/accounts/webhook/sync/1000823000014821235
  */
+// Supports both:
+//   POST /webhook/sync/1000823000014821235   ← direct API call with ID in URL
+//   POST /webhook/sync                        ← Zoho CRM webhook with id in body
 router.post('/webhook/sync/:recordId', (req, res, next) => ctrl.webhookSync(req, res, next));
+router.post('/webhook/sync', (req, res, next) => ctrl.webhookSync(req, res, next));
 
 /**
  * GET /accounts/webhook/storage/:recordId

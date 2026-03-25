@@ -8,3 +8,5 @@ storage/
 /zip
 working-code
 working-code*.zip
+src-fixed*
+*.zip

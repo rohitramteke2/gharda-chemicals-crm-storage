@@ -18,7 +18,14 @@ export function apiKeyAuth(req, res, next) {
     // Skip auth if no key is configured (dev convenience)
     if (!env.API_KEY) return next();
 
-    const key = req.headers['x-api-key'];
+    // Accept key from header, query param, or body
+    // This supports Zoho CRM webhooks which send custom params as query string
+    const key = req.headers['x-api-key']
+             || req.query?.['X-API-Key']
+             || req.query?.['x-api-key']
+             || req.body?.['X-API-Key']
+             || req.body?.['x-api-key'];
+
     if (key === env.API_KEY) return next();
 
     res.status(401).json({

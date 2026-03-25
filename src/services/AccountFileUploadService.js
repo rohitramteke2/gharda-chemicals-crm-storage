@@ -341,7 +341,7 @@ class AccountFileUploadService {
                     (err.response?.status === 400 && JSON.stringify(zohoError).includes('too many requests'));
 
                 if (isRateLimit && attempt < retries) {
-                    const wait = attempt * 2000;
+                    const wait = attempt * 3000;
                     logger.warn(`Accounts: rate limited on file_upload, retrying in ${wait}ms`, { recordId, fileId, attempt });
                     await new Promise(r => setTimeout(r, wait));
                     continue;
@@ -575,7 +575,7 @@ class AccountFileUploadService {
             if (field.type === 'image_upload') {
 
                 // Rate limit protection
-                if (downloadNum > 0) await new Promise(r => setTimeout(r, 1000));
+                if (downloadNum > 0) await new Promise(r => setTimeout(r, 2000));
                 downloadNum++;
 
                 const fieldDir      = path.join(destDir, field.apiName);
@@ -694,7 +694,7 @@ class AccountFileUploadService {
                 totalFiles++;
 
                 // Rate limit protection
-                if (downloadNum > 0) await new Promise(r => setTimeout(r, 1000));
+                if (downloadNum > 0) await new Promise(r => setTimeout(r, 2000));
                 downloadNum++;
 
                 const fieldDir = path.join(destDir, field.apiName);
