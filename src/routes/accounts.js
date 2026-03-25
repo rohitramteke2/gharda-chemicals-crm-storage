@@ -257,4 +257,28 @@ router.post(
 
 
 
+
+// ════════════════════════════════════════════════════════════════════════════
+//  WEBHOOK ENDPOINTS
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /accounts/webhook/sync/:recordId
+ * Downloads ALL files for an account from Zoho CRM → saves to VM.
+ * Covers all 22 fields (file_upload + image_upload).
+ *
+ * Example: POST /api/v1/accounts/webhook/sync/1000823000014821235
+ */
+router.post('/webhook/sync/:recordId', (req, res, next) => ctrl.webhookSync(req, res, next));
+
+/**
+ * GET /accounts/webhook/storage/:recordId
+ * Returns all files already stored on the VM for this account.
+ * Does NOT download — just reads disk and returns public URLs.
+ * Run webhook/sync first, then call this to get the links.
+ *
+ * Example: GET /api/v1/accounts/webhook/storage/1000823000014821235
+ */
+router.get('/webhook/storage/:recordId', (req, res, next) => ctrl.webhookStorage(req, res, next));
+
 export default router;

@@ -5,7 +5,8 @@ import { env, zohoHttpsAgent } from '../config/env.js';
 import logger from '../utils/logger.js';
 import auth from './ZohoAuthService.js';
 
-const BASE = `${env.ZOHO_API_DOMAIN}/crm/v2`;
+const BASE   = `${env.ZOHO_API_DOMAIN}/crm/v2`;
+const BASE_V3 = `${env.ZOHO_API_DOMAIN}/crm/v3`;
 
 // ── All 22 File Upload + Image Upload fields in Distributor layout ──────────
 const FILE_UPLOAD_FIELDS = [
@@ -156,10 +157,11 @@ class AccountFileUploadService {
     async fetchAccountById(recordId) {
         const token = await auth.getToken();
 
-        logger.info('Accounts: fetching single record', { recordId });
+        logger.info('Accounts: fetching single record (v3)', { recordId });
 
         try {
-            const { data: res } = await axios.get(`${BASE}/Accounts/${recordId}`, {
+            // Use v3 API — returns image_upload field data (File_Id, id) unlike v2
+            const { data: res } = await axios.get(`${BASE_V3}/Accounts/${recordId}`, {
                 headers:    { Authorization: `Zoho-oauthtoken ${token}` },
                 httpsAgent: zohoHttpsAgent,
                 timeout:    15_000,
@@ -203,6 +205,79 @@ class AccountFileUploadService {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    //  2c. Fetch image field attachment IDs directly from the record fields
+    //
+    //  Zoho returns attachment_Id for image_upload fields via the
+    //  /Accounts/{recordId} endpoint BUT only when fields are explicitly
+    //  requested. We fetch the record with all fields and extract
+    //  attachment_Id for each image field.
+    //
+    //  This is the CORRECT way — confirmed working via Postman:
+    //  GET /Accounts/{id}/actions/download_fields_attachment?fields_attachment_id={attachment_Id}
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async fetchImageFieldAttachmentIds(recordId) {
+        const token = await auth.getToken();
+
+        const IMAGE_FIELDS = [
+            'Upload_Aadhar_Card_File',
+            'Upload_GPS_Photo',
+            'Upload_Pan_Card_File',
+        ];
+
+        // Build fields param to request only image fields
+        const fieldsParam = IMAGE_FIELDS.join(',');
+
+        try {
+            // Use v3 API — returns image_upload fields with File_Id and id
+            const { data: res } = await axios.get(`${BASE_V3}/Accounts/${recordId}`, {
+                headers:    { Authorization: `Zoho-oauthtoken ${token}` },
+                httpsAgent: zohoHttpsAgent,
+                timeout:    15_000,
+            });
+
+            const record = res.data?.[0] || {};
+            const result = {};
+
+            for (const fieldName of IMAGE_FIELDS) {
+                const value = record[fieldName];
+                if (value && Array.isArray(value) && value.length > 0) {
+                    result[fieldName] = value.map(f => ({
+                        // v3 returns File_Id (capital F) and id as the attachment identifier
+                        attachment_Id: f.attachment_Id || f.id,
+                        file_Name:     f.File_Name || f.file_Name || `${fieldName}.jpg`,
+                        file_Id:       f.File_Id  || f.file_Id,
+                    }));
+                } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    result[fieldName] = [{
+                        attachment_Id: value.attachment_Id || value.id,
+                        file_Name:     value.File_Name || value.file_Name || `${fieldName}.jpg`,
+                        file_Id:       value.File_Id  || value.file_Id,
+                    }];
+                } else {
+                    result[fieldName] = null;
+                }
+            }
+
+            logger.info('Accounts: image field attachment IDs fetched', {
+                recordId,
+                fields: Object.entries(result).map(([k, v]) => ({
+                    field: k,
+                    hasData: !!v,
+                    attachmentId: v?.[0]?.attachment_Id || null,
+                })),
+            });
+
+            return result;
+
+        } catch (err) {
+            if (err.response?.status === 401) auth.clearToken();
+            logger.warn('Accounts: fetchImageFieldAttachmentIds failed', { recordId, message: err.message });
+            return {};
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     //  3. Download a file from a FILE UPLOAD field
     //
     //  Endpoint: GET /crm/v2/files?id={file_Id}
@@ -240,7 +315,7 @@ class AccountFileUploadService {
                 await new Promise((resolve, reject) => {
                     const writer = fse.createWriteStream(finalDest);
                     response.data.pipe(writer);
-                    writer.on('finish', resolve);
+                    writer.on('close', resolve);
                     writer.on('error', reject);
                 });
 
@@ -266,7 +341,7 @@ class AccountFileUploadService {
                     (err.response?.status === 400 && JSON.stringify(zohoError).includes('too many requests'));
 
                 if (isRateLimit && attempt < retries) {
-                    const wait = attempt * 3000;
+                    const wait = attempt * 2000;
                     logger.warn(`Accounts: rate limited on file_upload, retrying in ${wait}ms`, { recordId, fileId, attempt });
                     await new Promise(r => setTimeout(r, wait));
                     continue;
@@ -316,26 +391,17 @@ class AccountFileUploadService {
     //  Reference: Zoho CRM Download Field Attachments API
     // ═══════════════════════════════════════════════════════════════════════
 
-    async downloadImageField(recordId, fieldApiName, allAttachments, destDir, retries = 3) {
+    // attachmentData: { attachment_Id, file_Name } — comes from fetchImageFieldAttachmentIds
+    async downloadImageField(recordId, fieldApiName, attachmentData, destDir, retries = 3) {
         const token = await auth.getToken();
 
         await fse.ensureDir(destDir);
 
         logger.info('Accounts: downloading image_upload field', { recordId, fieldApiName });
 
-        // ── Find the attachment for this image field ──────────────────────
-        // Zoho stores image upload field attachments in the Attachments list.
-        // They can be matched by:
-        //   1. $field_name or field_name property (most reliable)
-        //   2. File_Name containing the field API name (fallback)
-        const match = allAttachments.find(a =>
-            a.$field_name === fieldApiName ||
-            a.field_name  === fieldApiName ||
-            a.File_Name?.toLowerCase().includes(fieldApiName.toLowerCase().replace(/_/g, '').slice(0, 12))
-        );
-
-        if (!match) {
-            logger.info('Accounts: no attachment found for image_upload field — field is empty', {
+        // ── Validate we have file data ────────────────────────────────────
+        if (!attachmentData || (!attachmentData.file_Id && !attachmentData.attachment_Id)) {
+            logger.info('Accounts: no file data for image_upload field — field is empty', {
                 recordId, fieldApiName,
             });
             return [{
@@ -349,13 +415,21 @@ class AccountFileUploadService {
             }];
         }
 
-        logger.info('Accounts: matched image_upload attachment', {
-            recordId, fieldApiName,
-            attachmentId: match.id,
-            fileName:     match.File_Name,
+        const fileId           = attachmentData.file_Id;
+        const attachmentId     = attachmentData.attachment_Id;
+        const attachmentFileName = attachmentData.file_Name || `${fieldApiName}.jpg`;
+
+        logger.info('Accounts: downloading image field', {
+            recordId, fieldApiName, fileId, attachmentId, attachmentFileName,
         });
 
-        // ── Download via download_fields_attachment endpoint ──────────────
+        // ── Strategy 1: use File_Id with GET /crm/v2/files (same as file_upload) ──
+        // v3 API returns File_Id for image fields — reuse the same download path
+        if (fileId) {
+            return [await this.downloadFieldFile(recordId, fileId, attachmentFileName, destDir, retries)];
+        }
+
+        // ── Strategy 2: fallback to download_fields_attachment with attachment_Id ──
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 const response = await axios.get(
@@ -363,7 +437,7 @@ class AccountFileUploadService {
                     {
                         headers:      { Authorization: `Zoho-oauthtoken ${token}` },
                         httpsAgent:   zohoHttpsAgent,
-                        params:       { fields_attachment_id: match.id },
+                        params:       { fields_attachment_id: attachmentId },
                         responseType: 'stream',
                         timeout:      120_000,
                     }
@@ -385,7 +459,7 @@ class AccountFileUploadService {
                 await new Promise((resolve, reject) => {
                     const writer = fse.createWriteStream(finalDest);
                     response.data.pipe(writer);
-                    writer.on('finish', resolve);
+                    writer.on('close', resolve);
                     writer.on('error', reject);
                 });
 
@@ -396,7 +470,7 @@ class AccountFileUploadService {
                 });
 
                 return [{
-                    fileId:   match.id,
+                    fileId:   attachmentId,
                     fileName,
                     filePath: finalDest,
                     fileUrl:  buildFileUrl(this.storageRoot, finalDest),
@@ -413,7 +487,7 @@ class AccountFileUploadService {
                 if (err.response?.status === 204) {
                     logger.info('Accounts: image_upload field is empty (204)', { recordId, fieldApiName });
                     return [{
-                        fileId:   match.id,
+                        fileId:   attachmentId,
                         fileName: fieldApiName,
                         filePath: null,
                         fileUrl:  null,
@@ -437,7 +511,7 @@ class AccountFileUploadService {
 
                 logger.error('Accounts: image_upload download failed', {
                     recordId, fieldApiName,
-                    attachmentId: match.id,
+                    attachmentId: attachmentId,
                     status:  err.response?.status,
                     message: err.message,
                     attempt,
@@ -445,7 +519,7 @@ class AccountFileUploadService {
                 });
 
                 return [{
-                    fileId:   match.id,
+                    fileId:   attachmentId,
                     fileName: fieldApiName,
                     filePath: null,
                     fileUrl:  null,
@@ -483,8 +557,10 @@ class AccountFileUploadService {
 
         logger.info('Accounts: processing all 22 fields', { recordId, sapId, accountName, destDir });
 
-        // ── Pre-fetch attachments list once — required for image_upload fields ──
-        const allAttachments = await this.fetchRecordAttachments(recordId);
+        // ── Pre-fetch image field attachment IDs ─────────────────────────────
+        // image_upload fields don't return data in the standard record API,
+        // so we fetch them separately using fetchImageFieldAttachmentIds.
+        const imageFieldData = await this.fetchImageFieldAttachmentIds(recordId);
 
         const fieldResults = [];
         let totalFiles   = 0;
@@ -499,13 +575,32 @@ class AccountFileUploadService {
             if (field.type === 'image_upload') {
 
                 // Rate limit protection
-                if (downloadNum > 0) await new Promise(r => setTimeout(r, 2000));
+                if (downloadNum > 0) await new Promise(r => setTimeout(r, 1000));
                 downloadNum++;
 
-                const fieldDir = path.join(destDir, field.apiName);
-                const results  = await this.downloadImageField(
-                    recordId, field.apiName, allAttachments, fieldDir
-                );
+                const fieldDir      = path.join(destDir, field.apiName);
+                const fieldImages   = imageFieldData[field.apiName] || null;
+
+                // Pass each image attachment separately
+                const allResults = [];
+                if (fieldImages && fieldImages.length > 0) {
+                    for (const imgAttachment of fieldImages) {
+                        const res = await this.downloadImageField(
+                            recordId, field.apiName, imgAttachment, fieldDir
+                        );
+                        allResults.push(...res);
+                    }
+                } else {
+                    // No image data — field is empty
+                    allResults.push({
+                        fileId: null, fileName: field.apiName,
+                        filePath: null, fileUrl: null,
+                        size: 0, status: 'no_image',
+                        error: 'No image uploaded in this field',
+                    });
+                }
+
+                const results = allResults;
 
                 const allNoImage = results.every(r => r.status === 'no_image');
                 const allOk      = results.every(r => r.status === 'ok');
@@ -599,7 +694,7 @@ class AccountFileUploadService {
                 totalFiles++;
 
                 // Rate limit protection
-                if (downloadNum > 0) await new Promise(r => setTimeout(r, 2000));
+                if (downloadNum > 0) await new Promise(r => setTimeout(r, 1000));
                 downloadNum++;
 
                 const fieldDir = path.join(destDir, field.apiName);
@@ -751,9 +846,24 @@ class AccountFileUploadService {
         let results;
 
         if (fieldDef.type === 'image_upload') {
-            // Image upload — need attachments list
-            const allAttachments = await this.fetchRecordAttachments(recordId);
-            results = await this.downloadImageField(recordId, fieldName, allAttachments, fieldDir);
+            // Image upload — fetch attachment_Id directly
+            const imageFieldData = await this.fetchImageFieldAttachmentIds(recordId);
+            const fieldImages    = imageFieldData[fieldName] || null;
+
+            results = [];
+            if (fieldImages && fieldImages.length > 0) {
+                for (const imgAttachment of fieldImages) {
+                    const res = await this.downloadImageField(recordId, fieldName, imgAttachment, fieldDir);
+                    results.push(...res);
+                }
+            } else {
+                results = [{
+                    fileId: null, fileName: fieldName,
+                    filePath: null, fileUrl: null,
+                    size: 0, status: 'no_image',
+                    error: 'No image uploaded in this field',
+                }];
+            }
         } else {
             // File upload — get ID from record
             const value = record[fieldName];

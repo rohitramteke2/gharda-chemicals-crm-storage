@@ -1,4 +1,5 @@
 import accountService from '../services/AccountFileUploadService.js';
+import { env } from '../config/env.js';
 import zohoService from '../services/ZohoAccountService.js';
 import logger from '../utils/logger.js';
 
@@ -525,6 +526,143 @@ class AccountController {
         }
     }
     
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  WEBHOOK — Sync (download all) + Storage (return URLs)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * POST /accounts/webhook/sync/:recordId
+     * Downloads all 22 fields (file_upload + image_upload) to VM.
+     * Wraps processSingleAccount — same logic as /sync endpoint.
+     */
+    async webhookSync(req, res, next) {
+        try {
+            const { recordId } = req.params;
+
+            logger.info('AccountController: webhookSync', { recordId });
+
+            const result = await accountService.processSingleAccount(recordId);
+
+            if (result.error) {
+                const statusCode = result.error.code === 'NOT_FOUND'    ? 404
+                                 : result.error.code === 'NOT_APPROVED' ? 422
+                                 : 400;
+                return res.status(statusCode).json({
+                    success:          false,
+                    status_api_check: false,
+                    error:            result.error,
+                });
+            }
+
+            const baseUrl = env.PUBLIC_BASE_URL || 'http://localhost:3000';
+
+            res.json({
+                success:          true,
+                status_api_check: result.status_api_check,
+                data: {
+                    recordId,
+                    accountName:  result.accountName,
+                    sapId:        result.sapId,
+                    storageRoot:  `${baseUrl}/storage/Accounts/${result.sapId}`,
+                    syncSummary: {
+                        totalFields:     result.summary?.total_fields      || 0,
+                        filesDownloaded: result.summary?.downloaded        || 0,
+                        filesFailed:     result.summary?.failed            || 0,
+                        fieldsEmpty:     result.summary?.fields_empty      || 0,
+                    },
+                    fields: result.fields || [],
+                },
+            });
+
+        } catch (err) {
+            next(err);
+        }
+    }
+
+    /**
+     * GET /accounts/webhook/storage/:recordId
+     * Scans VM disk and returns all stored file URLs — no downloading.
+     */
+    async webhookStorage(req, res, next) {
+        try {
+            const { recordId } = req.params;
+
+            logger.info('AccountController: webhookStorage', { recordId });
+
+            // Step 1: resolve account to get SAP_ID / folder name
+            const record = await zohoService.fetchRecordById(recordId);
+            if (!record) {
+                return res.status(404).json({
+                    success: false,
+                    error: { code: 'NOT_FOUND', message: `Account "${recordId}" not found in Zoho CRM.` },
+                });
+            }
+
+            const sapId      = record.SAP_ID || null;
+            const folderName = sapId || `crm-${recordId}`;
+
+            // Step 2: scan VM storage
+            const storageData = await accountService.listDownloadedFiles(folderName);
+
+            if (!storageData) {
+                return res.status(200).json({
+                    success:       true,
+                    status_synced: false,
+                    data: {
+                        recordId,
+                        accountName: record.Account_Name,
+                        sapId:       sapId || null,
+                        folderName,
+                        message:     'No files found on VM. Run POST /webhook/sync/:recordId first.',
+                        totalFiles:  0,
+                        totalSize:   0,
+                        fields:      [],
+                    },
+                });
+            }
+
+            // Step 3: build full public URLs
+            const baseUrl        = env.PUBLIC_BASE_URL || 'http://localhost:3000';
+            const fieldsWithUrls = storageData.fields.map(field => ({
+                fieldApiName: field.fieldApiName,
+                fieldLabel:   field.fieldLabel,
+                fieldType:    field.fieldType,
+                fileCount:    field.fileCount,
+                files: field.files.map(f => ({
+                    name:      f.name,
+                    size:      f.size,
+                    sizeKb:    (f.size / 1024).toFixed(2) + ' KB',
+                    modified:  f.modified,
+                    url:       `${baseUrl}${f.url}`,
+                    localPath: f.url,
+                })),
+            }));
+
+            res.json({
+                success:       true,
+                status_synced: true,
+                data: {
+                    recordId,
+                    accountName:  record.Account_Name,
+                    sapId:        sapId || null,
+                    folderName,
+                    status:       record.Status      || null,
+                    layout:       record.Layout?.name || null,
+                    totalFields:  fieldsWithUrls.length,
+                    totalFiles:   storageData.totalFiles,
+                    totalSize:    storageData.totalSize,
+                    totalSizeKb:  (storageData.totalSize / 1024).toFixed(2) + ' KB',
+                    storageRoot:  `${baseUrl}/storage/Accounts/${folderName}`,
+                    fields:       fieldsWithUrls,
+                },
+            });
+
+        } catch (err) {
+            next(err);
+        }
+    }
+
 }
 
 export default new AccountController();
