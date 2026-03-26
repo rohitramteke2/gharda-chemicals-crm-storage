@@ -20,3 +20,9 @@ Verify:
 powershell
 Get-ScheduledTask -TaskName "ZohoAPI" | Select-Object State
 Should say Running. Then hit the URL from your browser to confirm. Share the output.
+
+
+Then:
+powershellnetsh http add sslcert ipport=0.0.0.0:14443 certhash=3B15BFAB029450D4C3386C45AD1641443E725E87 appid='{4dc3e181-e14b-4a21-b022-59fc669b0914}'
+Then restart IIS:
+powershelliisreset
