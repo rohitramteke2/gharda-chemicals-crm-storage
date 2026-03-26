@@ -1,3 +1,15 @@
+$cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Thumbprint -eq '3B15BFAB029450D4C3386C45AD1641443E725E87' }
+$rsaKey = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
+$keyName = $rsaKey.Key.UniqueName
+$keyPath = "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys\$keyName"
+icacls $keyPath /grant "NT AUTHORITY\NETWORK SERVICE:R"
+icacls $keyPath /grant "IIS_IUSRS:R"
+icacls $keyPath /grant "SYSTEM:F"
+icacls $keyPath /grant "Administrators:F"
+
+---------------------
+
+
 I notice the user prompt is empty, so I cannot determine the primary language. However, based on the thinking block being in English, here is my summary: Pivoted to Task Scheduler after evaluating service creation alternatives
 I notice the user prompt is empty, so I cannot determine the primary language. However, based on the thinking block being in English, here is my summary: Pivoted to Task Scheduler after evaluating service creation alternatives
 NSSM site is down. No worries — let's use Task Scheduler instead, works just as well:
@@ -44,4 +56,5 @@ Set-Acl $keyPath $acl
 
 $pfxPath = "D:\Software\SSL GHARDA\2555645900\STAR_gharda_com.pfx"
 $pfxPassword = Read-Host "Enter PFX password" -AsSecureString
-Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\LocalMachine\My -Password $pfxPassword -Exportable
+Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\LocalMachine\My -Password $pfxPassword -
+Exportable
