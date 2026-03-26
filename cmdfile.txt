@@ -25,4 +25,16 @@ Should say Running. Then hit the URL from your browser to confirm. Share the out
 Then:
 powershellnetsh http add sslcert ipport=0.0.0.0:14443 certhash=3B15BFAB029450D4C3386C45AD1641443E725E87 appid='{4dc3e181-e14b-4a21-b022-59fc669b0914}'
 Then restart IIS:
+powershelliisresetThen:
+powershellnetsh http add sslcert ipport=0.0.0.0:14443 certhash=3B15BFAB029450D4C3386C45AD1641443E725E87 appid='{4dc3e181-e14b-4a21-b022-59fc669b0914}'
+Then restart IIS:
 powershelliisreset
+
+$cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Thumbprint -eq '3B15BFAB029450D4C3386C45AD1641443E725E87' }
+$rsaKey = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
+$keyName = $rsaKey.Key.UniqueName
+$keyPath = "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys\$keyName"
+$acl = Get-Acl $keyPath
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("IIS_IUSRS","FullControl","Allow")
+$acl.SetAccessRule($rule)
+Set-Acl $keyPath $acl
