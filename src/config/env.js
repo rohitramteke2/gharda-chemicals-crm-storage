@@ -1,4 +1,5 @@
 import https from 'https';
+import fs from 'fs';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const get = (key, fallback = '') => process.env[key] || fallback;
@@ -22,9 +23,6 @@ export const env = {
     ZOHO_ACCOUNTS_URL:  get('ZOHO_ACCOUNTS_URL', 'https://accounts.zoho.in/oauth/v2/token'),
     ZOHO_API_DOMAIN:    get('ZOHO_API_DOMAIN', 'https://www.zohoapis.in'),
 
-    // SSL — explicit opt-in to bypass certificate verification
-    ZOHO_SKIP_SSL_VERIFY: get('ZOHO_SKIP_SSL_VERIFY', 'false'),
-
     // Storage on RDP / VM
     ATTACHMENT_DIR: get('ATTACHMENT_DIR', './storage/attachments'),
 
@@ -44,25 +42,12 @@ export const env = {
 };
 
 // ── Shared HTTPS agent ─────────────────────────────────────────────────────
-// Bypasses SSL when:
-//   1. ZOHO_SKIP_SSL_VERIFY=true   (explicit, recommended for self-signed certs)
-//   2. ZOHO_API_DOMAIN is a private / non-standard host
-const isPrivateDomain = (() => {
-    try {
-        const host = new URL(env.ZOHO_API_DOMAIN).hostname;
-        return (
-            !host.endsWith('.zohoapis.in') &&
-            !host.endsWith('.zohoapis.com') &&
-            !host.endsWith('.zoho.in') &&
-            !host.endsWith('.zoho.com')
-        );
-    } catch {
-        return false;
-    }
-})();
+const isProd = env.NODE_ENV === 'production';
 
-const skipSSL = env.ZOHO_SKIP_SSL_VERIFY === 'true' || isPrivateDomain;
-
-export const zohoHttpsAgent = skipSSL
-    ? new https.Agent({ rejectUnauthorized: false })
-    : undefined;
+export const zohoHttpsAgent = isProd
+    ? new https.Agent({
+        ca: fs.readFileSync('D:/Software/SSL GHARDA/2555645900/certs/usertrust.pem')
+    })
+    : new https.Agent({
+        rejectUnauthorized: false
+    });
