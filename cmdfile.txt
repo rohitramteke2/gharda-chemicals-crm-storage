@@ -38,3 +38,10 @@ $acl = Get-Acl $keyPath
 $rule = New-Object System.Security.AccessControl.FileSystemAccessRule("IIS_IUSRS","FullControl","Allow")
 $acl.SetAccessRule($rule)
 Set-Acl $keyPath $acl
+
+
+------------------
+
+$pfxPath = "D:\Software\SSL GHARDA\2555645900\STAR_gharda_com.pfx"
+$pfxPassword = Read-Host "Enter PFX password" -AsSecureString
+Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\LocalMachine\My -Password $pfxPassword -Exportable
