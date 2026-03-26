@@ -1,60 +1,47 @@
-$cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Thumbprint -eq '3B15BFAB029450D4C3386C45AD1641443E725E87' }
-$rsaKey = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
-$keyName = $rsaKey.Key.UniqueName
-$keyPath = "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys\$keyName"
-icacls $keyPath /grant "NT AUTHORITY\NETWORK SERVICE:R"
-icacls $keyPath /grant "IIS_IUSRS:R"
-icacls $keyPath /grant "SYSTEM:F"
-icacls $keyPath /grant "Administrators:F"
+Diagnosed persistent SSL certificate binding issue and formulated resolution strategy
+Diagnosed persistent SSL certificate binding issue and formulated resolution strategy
+Let me take a different approach. Instead of fighting with netsh, let's use IIS PowerShell commands directly:
 
----------------------
-
-
-I notice the user prompt is empty, so I cannot determine the primary language. However, based on the thinking block being in English, here is my summary: Pivoted to Task Scheduler after evaluating service creation alternatives
-I notice the user prompt is empty, so I cannot determine the primary language. However, based on the thinking block being in English, here is my summary: Pivoted to Task Scheduler after evaluating service creation alternatives
-NSSM site is down. No worries — let's use Task Scheduler instead, works just as well:
+Step 1 — Check if the cert has a private key now:
 
 powershell
-$action = New-ScheduledTaskAction -Execute "C:\Program Files\nodejs\node.exe" -Argument "server.js" -WorkingDirectory "C:\Users\zoho.crm\Desktop\production\gharda-crm-api"
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName "ZohoAPI" -Action $action -Trigger $trigger -Settings $settings -User "zoho.crm" -RunLevel Highest -Description "Zoho CRM API Server"
-Then set the environment variable for production:
+Get-ChildItem Cert:\LocalMachine\My | ForEach-Object { "$($_.Thumbprint) | $($_.Subject) | HasKey=$($_.HasPrivateKey)" }
+Step 2 — If HasPrivateKey is still False, reimport with force:
 
 powershell
-[System.Environment]::SetEnvironmentVariable("NODE_ENV", "production", "Machine")
-Now start it manually to test:
+# Remove the old broken import first
+Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Thumbprint -eq '3B15BFAB029450D4C3386C45AD1641443E725E87' } | Remove-Item
 
-powershell
-Start-ScheduledTask -TaskName "ZohoAPI"
-Verify:
-
-powershell
-Get-ScheduledTask -TaskName "ZohoAPI" | Select-Object State
-Should say Running. Then hit the URL from your browser to confirm. Share the output.
-
-
-Then:
-powershellnetsh http add sslcert ipport=0.0.0.0:14443 certhash=3B15BFAB029450D4C3386C45AD1641443E725E87 appid='{4dc3e181-e14b-4a21-b022-59fc669b0914}'
-Then restart IIS:
-powershelliisresetThen:
-powershellnetsh http add sslcert ipport=0.0.0.0:14443 certhash=3B15BFAB029450D4C3386C45AD1641443E725E87 appid='{4dc3e181-e14b-4a21-b022-59fc669b0914}'
-Then restart IIS:
-powershelliisreset
-
-$cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Thumbprint -eq '3B15BFAB029450D4C3386C45AD1641443E725E87' }
-$rsaKey = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
-$keyName = $rsaKey.Key.UniqueName
-$keyPath = "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys\$keyName"
-$acl = Get-Acl $keyPath
-$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("IIS_IUSRS","FullControl","Allow")
-$acl.SetAccessRule($rule)
-Set-Acl $keyPath $acl
-
-
-------------------
-
+# Reimport with MachineKeySet + PersistKeySet
 $pfxPath = "D:\Software\SSL GHARDA\2555645900\STAR_gharda_com.pfx"
 $pfxPassword = Read-Host "Enter PFX password" -AsSecureString
-Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\LocalMachine\My -Password $pfxPassword -
-Exportable
+Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\LocalMachine\My -Password $pfxPassword -Exportable -KeyStorageFlags @("MachineKeySet","PersistKeySet")
+Step 3 — Verify it now has private key:
+
+powershell
+$cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Subject -like "*gharda.com*" -and $_.HasPrivateKey -eq $true }
+$cert | Select-Object Thumbprint, Subject, HasPrivateKey
+Step 4 — If HasPrivateKey=True, bind via IIS PowerShell (not netsh):
+
+powershell
+Import-Module WebAdministration
+
+# Remove old binding
+Remove-WebBinding -Name "Default Web Site" -Protocol https -Port 14443
+
+# Add new binding with correct cert
+New-WebBinding -Name "Default Web Site" -Protocol https -Port 14443 -IPAddress "*" -SslFlags 0
+
+# Assign the wildcard cert
+$binding = Get-WebBinding -Name "Default Web Site" -Protocol https -Port 14443
+$binding.AddSslCertificate($cert.Thumbprint, "My")
+Step 5 — Restart IIS:
+
+powershell
+iisreset
+```
+
+**Step 6 — Verify in browser:**
+```
+https://zoho.gharda.com:14443/production/health
+Should show a padlock now. Share the output from each step — especially Step 3 (HasPrivateKey check).
