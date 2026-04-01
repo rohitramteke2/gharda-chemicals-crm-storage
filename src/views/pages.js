@@ -1008,6 +1008,275 @@ export function renderDocs(baseUrl) {
 
 
 // ════════════════════════════════════════════════════════════════════════════
+//  PAGE: Payment Success — Zoho Creator redirect after successful payment
+//
+//  Zoho Creator passes these query params on redirect:
+//    ?status=success
+//    &paymentId=PAY-XXXX          (Zoho payment reference)
+//    &orderId=ORD-XXXX            (your order/record ID)
+//    &amount=5000                 (amount in smallest currency unit OR decimal)
+//    &currency=INR
+//    &customerName=John+Doe
+//    &email=john%40example.com
+//    &recordId=1000823000XXXXXXX  (Zoho Creator record ID)
+//
+//  All params are optional — page degrades gracefully if any are missing.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── ICICI Orange PG — all fields POSTed back to returnURL ──────────────────
+//
+//  SUCCESS response fields (from spec + UAT sample):
+//    responseCode        "0000/000"  → success
+//    respdescription     "Transaction successful"
+//    merchantId          echo
+//    merchantTxnNo       your order ref (≤20 chars, alphanumeric only)
+//    txnID               ICICI PG unique ref (24 digits)
+//    paymentID           authorization/payment ID (24 digits)
+//    paymentDateTime     YYYYMMDDHHmmSS
+//    paymentMode         CARD | NB | UPI | WALLET
+//    paymentSubInstType  bank name (NB) or DC/CC (card)
+//    amount              decimal  e.g. "25000.00"
+//    currencyCode        "356" for INR
+//    customerName        echo
+//    customerEmailID     echo
+//    customerMobileNo    echo
+//    addlParam1          your custom field 1 (Zoho record ID etc.)
+//    addlParam2          your custom field 2
+//    securehash          verification hash (lowercase key in response)
+//
+//  FAILURE: responseCode anything other than "0000" or "0000/000"
+// ──────────────────────────────────────────────────────────────────────────
+
+// Helper: parse ICICI YYYYMMDDHHmmSS into readable date/time
+function parseICICIDateTime(raw) {
+    if (!raw || raw.length < 14) return null;
+    const s   = String(raw);
+    const yr  = s.slice(0, 4);
+    const mo  = s.slice(4, 6);
+    const dy  = s.slice(6, 8);
+    const hr  = s.slice(8, 10);
+    const mn  = s.slice(10, 12);
+    const sc  = s.slice(12, 14);
+    const d   = new Date(`${yr}-${mo}-${dy}T${hr}:${mn}:${sc}`);
+    if (isNaN(d.getTime())) return null;
+    return {
+        date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }),
+        time: d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+        iso:  d.toISOString(),
+    };
+}
+
+// Helper: is this a successful ICICI response code?
+function isSuccessCode(code) {
+    if (!code) return false;
+    const c = String(code).trim();
+    return c === '0000' || c === '0000/000' || c.startsWith('0000');
+}
+
+// Helper: payment mode display label
+function payModeLabel(mode, subType) {
+    const m = (mode || '').toUpperCase();
+    if (m === 'NB')     return `Net Banking${subType ? ` — ${subType}` : ''}`;
+    if (m === 'CARD')   return `Card${subType ? ` (${subType})` : ''}`;
+    if (m === 'UPI')    return 'UPI';
+    if (m === 'WALLET') return `Wallet${subType ? ` — ${subType}` : ''}`;
+    return mode || 'Online';
+}
+
+export function renderPaymentSuccess(params = {}) {
+    // ── Normalise all ICICI POST fields ──────────────────────────────────
+    const responseCode     = params.responseCode     || params.responsecode     || null;
+    const respDescription  = params.respdescription  || params.responseDescription || params.respdesc || null;
+    const merchantTxnNo    = params.merchantTxnNo    || params.merchant_txn_no  || null;
+    const txnID            = params.txnID            || params.txn_id           || null;
+    const paymentID        = params.paymentID        || params.payment_id       || null;
+    const paymentDateTime  = params.paymentDateTime  || params.payment_date_time|| null;
+    const paymentMode      = params.paymentMode      || params.payment_mode     || null;
+    const paymentSubInst   = params.paymentSubInstType || params.payment_sub_inst|| null;
+    const amount           = params.amount           || null;
+    const currencyCode     = params.currencyCode     || params.currency         || '356';
+    const customerName     = params.customerName     || params.customer_name    || null;
+    const customerEmail    = params.customerEmailID  || params.email            || null;
+    const customerMobile   = params.customerMobileNo || params.mobile           || null;
+    const addlParam1       = params.addlParam1       || null;
+    const addlParam2       = params.addlParam2       || null;
+
+    // ── Determine success vs failure / dev mode ───────────────────────────
+    const isDev     = !responseCode;
+    const isSuccess = isDev || isSuccessCode(responseCode);
+
+    // ── Format amount ─────────────────────────────────────────────────────
+    const currMap = { '356': 'INR', '840': 'USD', '978': 'EUR' };
+    const currency = currMap[currencyCode] || currencyCode || 'INR';
+
+    function formatAmount(amt) {
+        if (!amt) return null;
+        const num = parseFloat(amt);
+        if (isNaN(num)) return null;
+        try {
+            return new Intl.NumberFormat('en-IN', {
+                style: 'currency', currency,
+                minimumFractionDigits: 2,
+            }).format(num);
+        } catch { return `₹${num.toFixed(2)}`; }
+    }
+
+    const formattedAmount = formatAmount(amount);
+
+    // ── Parse ICICI datetime (YYYYMMDDHHmmSS) ────────────────────────────
+    const parsedDT    = parseICICIDateTime(paymentDateTime);
+    const now         = new Date();
+    const displayDate = parsedDT?.date || now.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+    const displayTime = parsedDT?.time || now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    const PAYMENT_CSS = `
+        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap');
+        *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+        :root {
+            --bg:#f4f1eb; --surface:#fff; --surface-warm:#faf8f4;
+            --border:#e5dfd5; --text:#18150f; --text-muted:#7a7167;
+            --green:#1a6b3c; --green-bg:#e8f5ee; --green-border:#b0d9c2;
+            --red:#b91c1c; --red-bg:#fef2f2; --red-border:#fca5a5;
+            --gold:#92650a; --gold-bg:#fdf6e3; --gold-border:#e8cc88;
+            --font-d:'DM Serif Display',Georgia,serif;
+            --font-b:'DM Sans','Segoe UI',sans-serif;
+            --r:12px;
+        }
+        body {
+            font-family:var(--font-b); background:var(--bg); color:var(--text);
+            min-height:100vh; display:flex; flex-direction:column;
+            align-items:center; justify-content:center; padding:40px 20px;
+            background-image:
+                radial-gradient(ellipse at 15% 10%,rgba(146,101,10,.07) 0%,transparent 55%),
+                radial-gradient(ellipse at 85% 90%,rgba(26,107,60,.05) 0%,transparent 55%);
+        }
+        .logo-bar{display:flex;align-items:center;gap:10px;margin-bottom:32px;animation:fadeUp .4s ease both}
+        .logo-mark{width:34px;height:34px;border-radius:8px;background:var(--text);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-d);font-size:17px}
+        .logo-name{font-family:var(--font-d);font-size:16px}
+        .card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:48px 40px;max-width:540px;width:100%;box-shadow:0 8px 40px rgba(24,21,15,.10),0 2px 8px rgba(24,21,15,.06);text-align:center;animation:fadeUp .45s ease .05s both}
+        @keyframes fadeUp{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+        .icon-wrap{width:80px;height:80px;margin:0 auto 24px;position:relative}
+        .icon-circle{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;animation:popIn .45s cubic-bezier(.175,.885,.32,1.275) both}
+        .icon-circle.success{background:var(--green-bg);border:2px solid var(--green-border)}
+        .icon-circle.failure{background:var(--red-bg);border:2px solid var(--red-border)}
+        .icon-circle svg{width:36px;height:36px}
+        .icon-circle.success svg path{stroke:var(--green)}
+        .icon-circle.failure svg path{stroke:var(--red)}
+        .icon-circle svg path{stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round;fill:none;stroke-dasharray:60;stroke-dashoffset:60;animation:drawLine .45s ease .35s forwards}
+        @keyframes popIn{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
+        @keyframes drawLine{to{stroke-dashoffset:0}}
+        .icon-wrap.success::before,.icon-wrap.success::after{content:'';position:absolute;inset:-8px;border-radius:50%;border:1.5px solid var(--green-border);animation:ripple 2.2s ease-out .7s infinite;opacity:0}
+        .icon-wrap.success::after{inset:-16px;animation-delay:1s}
+        @keyframes ripple{0%{transform:scale(.88);opacity:.45}100%{transform:scale(1.12);opacity:0}}
+        .status-tag{display:inline-flex;align-items:center;gap:6px;border-radius:20px;padding:5px 14px;font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;margin-bottom:18px}
+        .status-tag.success{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+        .status-tag.failure{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
+        .status-dot{width:6px;height:6px;border-radius:50%}
+        .status-dot.success{background:var(--green);animation:pulse 1.6s ease infinite}
+        .status-dot.failure{background:var(--red)}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+        .dev-banner{background:var(--gold-bg);border:1px solid var(--gold-border);border-radius:8px;padding:10px 16px;font-size:12px;color:var(--gold);font-weight:500;margin-bottom:20px;display:flex;align-items:center;gap:8px}
+        h1{font-family:var(--font-d);font-size:30px;font-weight:400;line-height:1.25;margin-bottom:8px}
+        .subtitle{font-size:14px;color:var(--text-muted);line-height:1.65;margin-bottom:28px}
+        .amount-box{background:var(--gold-bg);border:1px solid var(--gold-border);border-radius:var(--r);padding:18px 24px;margin-bottom:24px}
+        .amount-label{font-size:10px;text-transform:uppercase;letter-spacing:.9px;color:var(--gold);font-weight:600;margin-bottom:4px}
+        .amount-value{font-family:var(--font-d);font-size:34px;color:var(--text);letter-spacing:-.5px}
+        .details{background:var(--surface-warm);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:24px;text-align:left}
+        .section-label{font-size:10px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-muted);font-weight:600;padding:8px 18px 6px;background:var(--surface-warm);border-bottom:1px solid var(--border)}
+        .detail-row{display:flex;justify-content:space-between;align-items:flex-start;padding:11px 18px;border-bottom:1px solid var(--border);font-size:13px;gap:16px}
+        .detail-row:last-child{border-bottom:none}
+        .detail-key{color:var(--text-muted);font-weight:500;flex-shrink:0;min-width:110px}
+        .detail-val{font-weight:500;color:var(--text);text-align:right;word-break:break-all;font-family:'Courier New',monospace;font-size:12px}
+        .detail-val.plain{font-family:var(--font-b);font-size:13px}
+        .detail-val.mode{font-family:var(--font-b);font-size:12px;background:var(--green-bg);color:var(--green);padding:2px 8px;border-radius:4px;border:1px solid var(--green-border)}
+        .error-box{background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--r);padding:16px 20px;text-align:left;margin-bottom:24px}
+        .error-code{font-family:'Courier New',monospace;font-size:13px;color:var(--red);font-weight:600;margin-bottom:4px}
+        .error-msg{font-size:13px;color:var(--text-muted)}
+        .footer-note{margin-top:24px;font-size:12px;color:var(--text-muted);line-height:1.7}
+        .footer-note strong{color:var(--text);font-weight:600}
+        .timestamp{margin-top:8px;font-size:11px;color:#ccc}
+        .powered{margin-top:20px;font-size:11px;color:#c0bab3;display:flex;align-items:center;justify-content:center;gap:6px}
+        @media(max-width:560px){.card{padding:32px 20px}h1{font-size:24px}.amount-value{font-size:28px}.detail-key{min-width:90px}}
+    `;
+
+    // ── Build detail sections ─────────────────────────────────────────────
+    const pRows = [], cRows = [], aRows = [];
+
+    if (txnID)          pRows.push({ key: 'ICICI Txn ID',  val: txnID,                               cls: '' });
+    if (paymentID)      pRows.push({ key: 'Payment ID',    val: paymentID,                           cls: '' });
+    if (merchantTxnNo)  pRows.push({ key: 'Order Ref',     val: merchantTxnNo,                       cls: '' });
+    if (paymentMode)    pRows.push({ key: 'Payment Mode',  val: payModeLabel(paymentMode, paymentSubInst), cls: 'mode' });
+    pRows.push({        key: 'Date & Time',                val: `${displayDate}, ${displayTime}`,    cls: 'plain' });
+
+    if (customerName)   cRows.push({ key: 'Customer',  val: customerName,   cls: 'plain' });
+    if (customerEmail)  cRows.push({ key: 'Email',     val: customerEmail,  cls: '' });
+    if (customerMobile) cRows.push({ key: 'Mobile',    val: customerMobile, cls: '' });
+
+    if (addlParam1)     aRows.push({ key: 'Reference 1', val: addlParam1, cls: '' });
+    if (addlParam2)     aRows.push({ key: 'Reference 2', val: addlParam2, cls: '' });
+
+    function section(label, rows) {
+        if (!rows.length) return '';
+        return `<div class="section-label">${label}</div>` +
+            rows.map(r => `<div class="detail-row"><span class="detail-key">${r.key}</span><span class="detail-val ${r.cls}">${escapeHtml(r.val)}</span></div>`).join('');
+    }
+
+    const hasDetail = pRows.length > 0 || cRows.length > 0;
+
+    const iconSvg = isSuccess
+        ? `<svg viewBox="0 0 36 36"><path d="M8 18 L15 25 L28 11"/></svg>`
+        : `<svg viewBox="0 0 36 36"><path d="M10 10 L26 26 M26 10 L10 26"/></svg>`;
+
+    const heading = isSuccess
+        ? `Thank You${customerName ? `,<br><em>${escapeHtml(customerName.split(' ')[0])}</em>` : ''}!`
+        : 'Payment Failed';
+
+    const subText = isSuccess
+        ? 'Your payment has been successfully processed.<br>Please save this page for your records.'
+        : `The transaction could not be completed.<br>${respDescription ? escapeHtml(respDescription) : 'Please try again or contact support.'}`;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${isSuccess ? 'Payment Successful' : 'Payment Failed'} — Gharda Chemicals</title>
+<style>${PAYMENT_CSS}</style>
+</head>
+<body>
+<div class="logo-bar">
+    <div class="logo-mark">G</div>
+    <span class="logo-name">Gharda Chemicals</span>
+</div>
+<div class="card">
+    ${isDev ? `<div class="dev-banner">⚙️ <strong>Development Preview</strong> — No payment data received yet. In production, ICICI Bank will POST all transaction fields to this URL automatically.</div>` : ''}
+    <div class="icon-wrap ${isSuccess ? 'success' : ''}">
+        <div class="icon-circle ${isSuccess ? 'success' : 'failure'}">${iconSvg}</div>
+    </div>
+    <div class="status-tag ${isSuccess ? 'success' : 'failure'}">
+        <span class="status-dot ${isSuccess ? 'success' : 'failure'}"></span>
+        ${isSuccess ? 'Payment Confirmed' : 'Payment Failed'}
+    </div>
+    <h1>${heading}</h1>
+    <p class="subtitle">${subText}</p>
+    ${!isSuccess && responseCode ? `<div class="error-box"><div class="error-code">Code: ${escapeHtml(responseCode)}</div>${respDescription ? `<div class="error-msg">${escapeHtml(respDescription)}</div>` : ''}</div>` : ''}
+    ${formattedAmount && isSuccess ? `<div class="amount-box"><div class="amount-label">Amount Paid</div><div class="amount-value">${escapeHtml(formattedAmount)}</div></div>` : ''}
+    ${hasDetail ? `<div class="details">${section('Transaction Details', pRows)}${section('Customer Details', cRows)}${section('Additional References', aRows)}</div>` : ''}
+    <div class="footer-note">
+        ${isSuccess
+            ? `Please retain this confirmation for your records.<br>For support, contact <strong>Gharda Chemicals</strong>.`
+            : `Please contact <strong>Gharda Chemicals</strong> support if your account was debited.`}
+    </div>
+    <div class="timestamp">Page generated ${displayDate} at ${displayTime}${parsedDT ? ' (transaction time)' : ' (local time)'}</div>
+    <div class="powered">Secured by ICICI Bank Orange Payment Gateway</div>
+</div>
+</body>
+</html>`;
+}
+
+
+
+// ════════════════════════════════════════════════════════════════════════════
 //  PAGE: Error pages (404, 500, 422, etc.)
 // ════════════════════════════════════════════════════════════════════════════
 
