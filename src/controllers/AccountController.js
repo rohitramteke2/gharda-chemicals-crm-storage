@@ -538,8 +538,6 @@ class AccountController {
      */
     async webhookSync(req, res, next) {
         try {
-            // Accept ID from URL param (:recordId) OR from request body (id)
-            // This supports both direct API calls and Zoho CRM webhook triggers
             const recordId = req.params.recordId || req.body?.id || req.query?.id;
 
             if (!recordId) {
@@ -551,38 +549,34 @@ class AccountController {
 
             logger.info('AccountController: webhookSync', { recordId, source: req.params.recordId ? 'url' : 'body' });
 
-            const result = await accountService.processSingleAccount(recordId);
-
-            if (result.error) {
-                const statusCode = result.error.code === 'NOT_FOUND'    ? 404
-                                 : result.error.code === 'NOT_APPROVED' ? 422
-                                 : 400;
-                return res.status(statusCode).json({
-                    success:          false,
-                    status_api_check: false,
-                    error:            result.error,
-                });
-            }
-
-            const baseUrl = env.PUBLIC_BASE_URL || 'http://localhost:3000';
-
-            res.json({
+            // ── Respond immediately so Zoho webhook doesn't time out ─────
+            // Processing 21 files takes ~75s — we return 202 instantly and
+            // process in the background. Check /webhook/storage/:recordId for results.
+            res.status(202).json({
                 success:          true,
-                status_api_check: result.status_api_check,
-                data: {
-                    recordId,
-                    accountName:  result.accountName,
-                    sapId:        result.sapId,
-                    storageRoot:  `${baseUrl}/storage/Accounts/${result.sapId}`,
-                    syncSummary: {
-                        totalFields:     result.summary?.total_fields      || 0,
-                        filesDownloaded: result.summary?.downloaded        || 0,
-                        filesFailed:     result.summary?.failed            || 0,
-                        fieldsEmpty:     result.summary?.fields_empty      || 0,
-                    },
-                    fields: result.fields || [],
-                },
+                status_api_check: true,
+                message:          'Sync started — processing in background. Check /webhook/storage/:recordId for results.',
+                data: { recordId, status: 'processing' },
             });
+
+            // ── Background processing (non-blocking) ────────────────────
+            accountService.processSingleAccount(recordId)
+                .then(result => {
+                    if (result.error) {
+                        logger.warn('AccountController: webhookSync background error', { recordId, error: result.error });
+                    } else {
+                        logger.info('AccountController: webhookSync background complete', {
+                            recordId,
+                            accountName:     result.accountName,
+                            sapId:           result.sapId,
+                            filesDownloaded: result.summary?.downloaded || 0,
+                            filesFailed:     result.summary?.failed     || 0,
+                        });
+                    }
+                })
+                .catch(err => {
+                    logger.error('AccountController: webhookSync background failed', { recordId, error: err.message });
+                });
 
         } catch (err) {
             next(err);

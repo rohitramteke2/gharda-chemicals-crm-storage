@@ -5,8 +5,11 @@ import { env, zohoHttpsAgent } from '../config/env.js';
 import logger from '../utils/logger.js';
 import auth from './ZohoAuthService.js';
 
-const BASE   = `${env.ZOHO_API_DOMAIN}/crm/v2`;
+const BASE    = `${env.ZOHO_API_DOMAIN}/crm/v2`;
 const BASE_V3 = `${env.ZOHO_API_DOMAIN}/crm/v3`;
+
+// ── Max parallel downloads at once (safe for Zoho rate limits) ──────────────
+const PARALLEL_LIMIT = 4;
 
 // ── All 22 File Upload + Image Upload fields in Distributor layout ──────────
 const FILE_UPLOAD_FIELDS = [
@@ -29,13 +32,11 @@ const FILE_UPLOAD_FIELDS = [
     { apiName: 'Upload_Partnership_Agreement_Proprietorship_Deed',     label: 'Partnership Agreement / Deed',           type: 'file_upload'  },
     { apiName: 'Upload_proof_of_security_Deposit',                     label: 'Proof of Security Deposit',              type: 'file_upload'  },
     { apiName: 'Upload_two_Blank_Letterhead_Signed',                   label: 'Two Blank Letterhead Signed',            type: 'file_upload'  },
-    // Image Upload fields — these require a different download API (see downloadImageField)
     { apiName: 'Upload_Aadhar_Card_File',                              label: 'Aadhar Card',                            type: 'image_upload' },
     { apiName: 'Upload_GPS_Photo',                                     label: 'GPS Photo',                              type: 'image_upload' },
     { apiName: 'Upload_Pan_Card_File',                                 label: 'Pan Card',                               type: 'image_upload' },
 ];
 
-// ── MIME type → extension mapping ───────────────────────────────────────────
 const MIME_TO_EXT = {
     'application/pdf':    '.pdf',
     'image/jpeg':         '.jpg',
@@ -56,38 +57,29 @@ const MIME_TO_EXT = {
     'application/octet-stream':     '.bin',
 };
 
-// ── Helper: build public HTTPS URL from a local file path ───────────────────
 function buildFileUrl(storageRoot, filePath) {
     const baseUrl  = env.PUBLIC_BASE_URL || 'https://zoho.gharda.com:14443/production';
     const relative = path.relative(storageRoot, filePath).replace(/\\/g, '/');
     return `${baseUrl}/storage/${relative}`;
 }
 
-// ── Helper: extract filename from content-disposition header ─────────────────
 function extractFileName(disposition, fallback) {
     if (!disposition) return fallback;
-
-    // RFC 5987 format: filename*=UTF-8''encoded_name
     const rfc5987 = disposition.match(/filename\*\s*=\s*UTF-8''(.+?)(?:;|$)/i);
     if (rfc5987?.[1]) {
         try { return decodeURIComponent(rfc5987[1].trim()); } catch { return rfc5987[1].trim(); }
     }
-
-    // Standard format: filename="name" or filename=name
     const std = disposition.match(/filename\s*=\s*"?([^";\n]+)"?/i);
     if (std?.[1] && !std[1].startsWith('UTF-8')) return std[1].trim();
-
     return fallback;
 }
 
-// ── Helper: read a stream into a Buffer (for error body parsing) ─────────────
 async function streamToBuffer(stream) {
     const chunks = [];
     for await (const chunk of stream) chunks.push(chunk);
     return Buffer.concat(chunks);
 }
 
-// ── Helper: parse Zoho error from a stream or object response ────────────────
 async function parseZohoError(responseData) {
     if (!responseData) return null;
     if (typeof responseData.read === 'function') {
@@ -98,6 +90,23 @@ async function parseZohoError(responseData) {
         } catch { return 'Could not read error stream'; }
     }
     return responseData;
+}
+
+// ── Run async tasks with a concurrency limit ─────────────────────────────────
+async function runWithConcurrency(tasks, limit) {
+    const results = new Array(tasks.length);
+    let index = 0;
+
+    async function worker() {
+        while (index < tasks.length) {
+            const i = index++;
+            results[i] = await tasks[i]();
+        }
+    }
+
+    const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
+    await Promise.all(workers);
+    return results;
 }
 
 
@@ -136,10 +145,7 @@ class AccountFileUploadService {
                 logger.info('Accounts: fetched page', { page: page - 1, count: records.length, total: all.length });
 
             } catch (err) {
-                if (err.response?.status === 204) {
-                    logger.info('Accounts: no approved records found');
-                    return [];
-                }
+                if (err.response?.status === 204) { logger.info('Accounts: no approved records found'); return []; }
                 if (err.response?.status === 401) auth.clearToken();
                 logger.error('Accounts: fetch failed', { page, status: err.response?.status, message: err.message });
                 throw err;
@@ -156,18 +162,15 @@ class AccountFileUploadService {
 
     async fetchAccountById(recordId) {
         const token = await auth.getToken();
-
         logger.info('Accounts: fetching single record (v3)', { recordId });
 
         try {
-            // Use v3 API — returns image_upload field data (File_Id, id) unlike v2
             const { data: res } = await axios.get(`${BASE_V3}/Accounts/${recordId}`, {
                 headers:    { Authorization: `Zoho-oauthtoken ${token}` },
                 httpsAgent: zohoHttpsAgent,
                 timeout:    15_000,
             });
             return res.data?.[0] || null;
-
         } catch (err) {
             if (err.response?.status === 401) auth.clearToken();
             logger.error('Accounts: fetchById failed', { recordId, message: err.message });
@@ -177,59 +180,36 @@ class AccountFileUploadService {
 
     // ═══════════════════════════════════════════════════════════════════════
     //  2b. Fetch all attachments for a record
-    //
-    //  Image Upload fields do NOT return file IDs in the record API response.
-    //  The only way to get their attachment IDs is via the Attachments endpoint.
-    //  We pre-fetch this list once per record and reuse it for all image fields.
     // ═══════════════════════════════════════════════════════════════════════
 
     async fetchRecordAttachments(recordId) {
         const token = await auth.getToken();
-
         try {
             const { data: res } = await axios.get(`${BASE}/Accounts/${recordId}/Attachments`, {
                 headers:    { Authorization: `Zoho-oauthtoken ${token}` },
                 httpsAgent: zohoHttpsAgent,
                 timeout:    15_000,
             });
-
             logger.info('Accounts: record attachments fetched', { recordId, count: res.data?.length || 0 });
             return res.data || [];
-
         } catch (err) {
-            if (err.response?.status === 204) return [];   // no attachments at all
+            if (err.response?.status === 204) return [];
             if (err.response?.status === 401) auth.clearToken();
             logger.warn('Accounts: fetchRecordAttachments failed', { recordId, message: err.message });
-            return [];  // non-fatal — image fields will just show no_image
+            return [];
         }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  2c. Fetch image field attachment IDs directly from the record fields
-    //
-    //  Zoho returns attachment_Id for image_upload fields via the
-    //  /Accounts/{recordId} endpoint BUT only when fields are explicitly
-    //  requested. We fetch the record with all fields and extract
-    //  attachment_Id for each image field.
-    //
-    //  This is the CORRECT way — confirmed working via Postman:
-    //  GET /Accounts/{id}/actions/download_fields_attachment?fields_attachment_id={attachment_Id}
+    //  2c. Fetch image field attachment IDs
     // ═══════════════════════════════════════════════════════════════════════
 
     async fetchImageFieldAttachmentIds(recordId) {
         const token = await auth.getToken();
 
-        const IMAGE_FIELDS = [
-            'Upload_Aadhar_Card_File',
-            'Upload_GPS_Photo',
-            'Upload_Pan_Card_File',
-        ];
-
-        // Build fields param to request only image fields
-        const fieldsParam = IMAGE_FIELDS.join(',');
+        const IMAGE_FIELDS = ['Upload_Aadhar_Card_File', 'Upload_GPS_Photo', 'Upload_Pan_Card_File'];
 
         try {
-            // Use v3 API — returns image_upload fields with File_Id and id
             const { data: res } = await axios.get(`${BASE_V3}/Accounts/${recordId}`, {
                 headers:    { Authorization: `Zoho-oauthtoken ${token}` },
                 httpsAgent: zohoHttpsAgent,
@@ -243,7 +223,6 @@ class AccountFileUploadService {
                 const value = record[fieldName];
                 if (value && Array.isArray(value) && value.length > 0) {
                     result[fieldName] = value.map(f => ({
-                        // v3 returns File_Id (capital F) and id as the attachment identifier
                         attachment_Id: f.attachment_Id || f.id,
                         file_Name:     f.File_Name || f.file_Name || `${fieldName}.jpg`,
                         file_Id:       f.File_Id  || f.file_Id,
@@ -262,9 +241,7 @@ class AccountFileUploadService {
             logger.info('Accounts: image field attachment IDs fetched', {
                 recordId,
                 fields: Object.entries(result).map(([k, v]) => ({
-                    field: k,
-                    hasData: !!v,
-                    attachmentId: v?.[0]?.attachment_Id || null,
+                    field: k, hasData: !!v, attachmentId: v?.[0]?.attachment_Id || null,
                 })),
             });
 
@@ -278,17 +255,31 @@ class AccountFileUploadService {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  3. Download a file from a FILE UPLOAD field
-    //
-    //  Endpoint: GET /crm/v2/files?id={file_Id}
-    //  The file_Id comes directly from the record API response for file_upload
-    //  fields (e.g. record['Upload_GSTIN_Certificate'][0].file_Id).
+    //  3. Download a FILE UPLOAD field file
+    //     ✅ Skips download if file already exists on disk
     // ═══════════════════════════════════════════════════════════════════════
 
     async downloadFieldFile(recordId, fileId, fileName, destDir, retries = 3) {
         const token = await auth.getToken();
-
         await fse.ensureDir(destDir);
+
+        // ── Skip if already exists ──────────────────────────────────────
+        const existingFiles = await fse.readdir(destDir).catch(() => []);
+        const baseName      = path.parse(fileName).name;
+        const alreadyExists = existingFiles.find(f => path.parse(f).name === baseName);
+
+        if (alreadyExists) {
+            const existingPath = path.join(destDir, alreadyExists);
+            const stat         = await fse.stat(existingPath);
+            logger.info('Accounts: file already exists — skipping', { recordId, fileName: alreadyExists });
+            return {
+                fileId, fileName: alreadyExists,
+                filePath: existingPath,
+                fileUrl:  buildFileUrl(this.storageRoot, existingPath),
+                size:     stat.size,
+                status:   'skipped',
+            };
+        }
 
         logger.info('Accounts: downloading file_upload field file', { recordId, fileId, fileName });
 
@@ -303,7 +294,6 @@ class AccountFileUploadService {
                 });
 
                 let finalFileName = extractFileName(response.headers['content-disposition'], fileName);
-
                 if (!path.extname(finalFileName)) {
                     const contentType = response.headers['content-type'] || '';
                     const ext = MIME_TO_EXT[contentType.split(';')[0].trim()] || '';
@@ -320,116 +310,85 @@ class AccountFileUploadService {
                 });
 
                 const stat = await fse.stat(finalDest);
-
                 logger.info('Accounts: file_upload field saved', { recordId, fileId, finalFileName, size: stat.size });
 
                 return {
-                    fileId,
-                    fileName: finalFileName,
-                    filePath: finalDest,
-                    fileUrl:  buildFileUrl(this.storageRoot, finalDest),
-                    size:     stat.size,
-                    status:   'ok',
+                    fileId, fileName: finalFileName, filePath: finalDest,
+                    fileUrl: buildFileUrl(this.storageRoot, finalDest),
+                    size: stat.size, status: 'ok',
                 };
 
             } catch (err) {
                 if (err.response?.status === 401) auth.clearToken();
 
-                const zohoError = await parseZohoError(err.response?.data);
-
+                const zohoError   = await parseZohoError(err.response?.data);
                 const isRateLimit = err.response?.status === 429 ||
                     (err.response?.status === 400 && JSON.stringify(zohoError).includes('too many requests'));
 
                 if (isRateLimit && attempt < retries) {
-                    const wait = attempt * 3000;
-                    logger.warn(`Accounts: rate limited on file_upload, retrying in ${wait}ms`, { recordId, fileId, attempt });
+                    const wait = attempt * 2000;
+                    logger.warn(`Accounts: rate limited, retrying in ${wait}ms`, { recordId, fileId, attempt });
                     await new Promise(r => setTimeout(r, wait));
                     continue;
                 }
 
-                const errMsg = err.response?.status === 204
-                    ? 'File not found or empty (204)'
-                    : err.message;
-
+                const errMsg = err.response?.status === 204 ? 'File not found or empty (204)' : err.message;
                 logger.error('Accounts: file_upload download failed', {
-                    recordId, fileId, fileName,
-                    status: err.response?.status, message: errMsg, attempt, zohoError,
+                    recordId, fileId, fileName, status: err.response?.status, message: errMsg, attempt, zohoError,
                 });
 
-                return {
-                    fileId,
-                    fileName,
-                    filePath:  null,
-                    fileUrl:   null,
-                    size:      0,
-                    status:    'failed',
-                    error:     errMsg,
-                    zohoError,
-                };
+                return { fileId, fileName, filePath: null, fileUrl: null, size: 0, status: 'failed', error: errMsg, zohoError };
             }
         }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  4. Download a file from an IMAGE UPLOAD field
-    //
-    //  WHY DIFFERENT: Zoho CRM does NOT return file IDs for image_upload fields
-    //  in the standard record API. The field value is always null in the GET
-    //  /Accounts/{id} response, regardless of whether an image is uploaded.
-    //
-    //  CORRECT APPROACH (two-step):
-    //
-    //  Step 1 — Get the attachment ID:
-    //    Pre-fetched via GET /Accounts/{recordId}/Attachments
-    //    Match attachment to the field by $field_name, field_name, or by
-    //    checking if the File_Name resembles the field API name.
-    //
-    //  Step 2 — Download with the field attachment ID:
-    //    GET /crm/v2/Accounts/{recordId}/actions/download_fields_attachment
-    //        ?fields_attachment_id={attachment_id}
-    //
-    //  Reference: Zoho CRM Download Field Attachments API
+    //  4. Download an IMAGE UPLOAD field file
+    //     ✅ Skips download if file already exists on disk
     // ═══════════════════════════════════════════════════════════════════════
 
-    // attachmentData: { attachment_Id, file_Name } — comes from fetchImageFieldAttachmentIds
     async downloadImageField(recordId, fieldApiName, attachmentData, destDir, retries = 3) {
         const token = await auth.getToken();
-
         await fse.ensureDir(destDir);
 
-        logger.info('Accounts: downloading image_upload field', { recordId, fieldApiName });
-
-        // ── Validate we have file data ────────────────────────────────────
         if (!attachmentData || (!attachmentData.file_Id && !attachmentData.attachment_Id)) {
-            logger.info('Accounts: no file data for image_upload field — field is empty', {
-                recordId, fieldApiName,
-            });
+            logger.info('Accounts: no file data for image_upload field — empty', { recordId, fieldApiName });
             return [{
-                fileId:   null,
-                fileName: fieldApiName,
-                filePath: null,
-                fileUrl:  null,
-                size:     0,
-                status:   'no_image',
-                error:    'No image uploaded in this field',
+                fileId: null, fileName: fieldApiName,
+                filePath: null, fileUrl: null, size: 0,
+                status: 'no_image', error: 'No image uploaded in this field',
             }];
         }
 
-        const fileId           = attachmentData.file_Id;
-        const attachmentId     = attachmentData.attachment_Id;
+        const fileId             = attachmentData.file_Id;
+        const attachmentId       = attachmentData.attachment_Id;
         const attachmentFileName = attachmentData.file_Name || `${fieldApiName}.jpg`;
 
-        logger.info('Accounts: downloading image field', {
-            recordId, fieldApiName, fileId, attachmentId, attachmentFileName,
-        });
+        // ── Skip if already exists ──────────────────────────────────────
+        const existingFiles = await fse.readdir(destDir).catch(() => []);
+        const baseName      = path.parse(attachmentFileName).name;
+        const alreadyExists = existingFiles.find(f => path.parse(f).name === baseName);
 
-        // ── Strategy 1: use File_Id with GET /crm/v2/files (same as file_upload) ──
-        // v3 API returns File_Id for image fields — reuse the same download path
+        if (alreadyExists) {
+            const existingPath = path.join(destDir, alreadyExists);
+            const stat         = await fse.stat(existingPath);
+            logger.info('Accounts: image already exists — skipping', { recordId, fieldApiName, fileName: alreadyExists });
+            return [{
+                fileId: fileId || attachmentId, fileName: alreadyExists,
+                filePath: existingPath,
+                fileUrl:  buildFileUrl(this.storageRoot, existingPath),
+                size: stat.size, status: 'skipped',
+            }];
+        }
+
+        logger.info('Accounts: downloading image field', { recordId, fieldApiName, fileId, attachmentId, attachmentFileName });
+
+        // Strategy 1: use File_Id (v3 API provides this)
         if (fileId) {
             return [await this.downloadFieldFile(recordId, fileId, attachmentFileName, destDir, retries)];
         }
 
-        // ── Strategy 2: fallback to download_fields_attachment with attachment_Id ──
+        // Strategy 2: fallback to download_fields_attachment
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 const response = await axios.get(
@@ -443,11 +402,7 @@ class AccountFileUploadService {
                     }
                 );
 
-                let fileName = extractFileName(
-                    response.headers['content-disposition'],
-                    match.File_Name || `${fieldApiName}.jpg`
-                );
-
+                let fileName = extractFileName(response.headers['content-disposition'], attachmentFileName);
                 if (!path.extname(fileName)) {
                     const contentType = response.headers['content-type'] || '';
                     const ext = MIME_TO_EXT[contentType.split(';')[0].trim()] || '.jpg';
@@ -455,7 +410,6 @@ class AccountFileUploadService {
                 }
 
                 const finalDest = path.join(destDir, fileName);
-
                 await new Promise((resolve, reject) => {
                     const writer = fse.createWriteStream(finalDest);
                     response.data.pipe(writer);
@@ -464,18 +418,12 @@ class AccountFileUploadService {
                 });
 
                 const stat = await fse.stat(finalDest);
-
-                logger.info('Accounts: image_upload field saved', {
-                    recordId, fieldApiName, fileName, size: stat.size,
-                });
+                logger.info('Accounts: image_upload field saved', { recordId, fieldApiName, fileName, size: stat.size });
 
                 return [{
-                    fileId:   attachmentId,
-                    fileName,
-                    filePath: finalDest,
-                    fileUrl:  buildFileUrl(this.storageRoot, finalDest),
-                    size:     stat.size,
-                    status:   'ok',
+                    fileId: attachmentId, fileName, filePath: finalDest,
+                    fileUrl: buildFileUrl(this.storageRoot, finalDest),
+                    size: stat.size, status: 'ok',
                 }];
 
             } catch (err) {
@@ -483,17 +431,12 @@ class AccountFileUploadService {
 
                 const zohoError = await parseZohoError(err.response?.data);
 
-                // 204 = no image uploaded in this field
                 if (err.response?.status === 204) {
                     logger.info('Accounts: image_upload field is empty (204)', { recordId, fieldApiName });
                     return [{
-                        fileId:   attachmentId,
-                        fileName: fieldApiName,
-                        filePath: null,
-                        fileUrl:  null,
-                        size:     0,
-                        status:   'no_image',
-                        error:    'No image uploaded in this field (204)',
+                        fileId: attachmentId, fileName: fieldApiName,
+                        filePath: null, fileUrl: null, size: 0,
+                        status: 'no_image', error: 'No image uploaded in this field (204)',
                     }];
                 }
 
@@ -501,32 +444,21 @@ class AccountFileUploadService {
                     (err.response?.status === 400 && JSON.stringify(zohoError).includes('too many requests'));
 
                 if (isRateLimit && attempt < retries) {
-                    const wait = attempt * 3000;
-                    logger.warn(`Accounts: rate limited on image_upload, retrying in ${wait}ms`, {
-                        recordId, fieldApiName, attempt,
-                    });
+                    const wait = attempt * 2000;
+                    logger.warn(`Accounts: rate limited on image_upload, retrying in ${wait}ms`, { recordId, fieldApiName, attempt });
                     await new Promise(r => setTimeout(r, wait));
                     continue;
                 }
 
                 logger.error('Accounts: image_upload download failed', {
-                    recordId, fieldApiName,
-                    attachmentId: attachmentId,
-                    status:  err.response?.status,
-                    message: err.message,
-                    attempt,
-                    zohoError,
+                    recordId, fieldApiName, attachmentId,
+                    status: err.response?.status, message: err.message, attempt, zohoError,
                 });
 
                 return [{
-                    fileId:   attachmentId,
-                    fileName: fieldApiName,
-                    filePath: null,
-                    fileUrl:  null,
-                    size:     0,
-                    status:   'failed',
-                    error:    err.message,
-                    zohoError,
+                    fileId: attachmentId, fileName: fieldApiName,
+                    filePath: null, fileUrl: null, size: 0,
+                    status: 'failed', error: err.message, zohoError,
                 }];
             }
         }
@@ -534,12 +466,8 @@ class AccountFileUploadService {
 
     // ═══════════════════════════════════════════════════════════════════════
     //  5. Process all 22 fields for a single record
-    //
-    //  Strategy:
-    //   - Pre-fetch all attachments ONCE (needed for image_upload fields)
-    //   - For file_upload:  use GET /crm/v2/files?id={file_Id}
-    //   - For image_upload: use GET /actions/download_fields_attachment?fields_attachment_id={id}
-    //   - 2-second delay between downloads to respect Zoho rate limits
+    //     ✅ PARALLEL downloads (PARALLEL_LIMIT concurrent)
+    //     ✅ Skip already-downloaded files
     // ═══════════════════════════════════════════════════════════════════════
 
     async processRecordFiles(record) {
@@ -548,169 +476,127 @@ class AccountFileUploadService {
         const sapId       = record.SAP_ID || null;
         const folderName  = sapId || `crm-${recordId}`;
 
-        if (!sapId) {
-            logger.warn('Accounts: no SAP_ID, using crm- prefix', { recordId, folderName });
-        }
+        if (!sapId) logger.warn('Accounts: no SAP_ID, using crm- prefix', { recordId, folderName });
 
         const destDir = path.join(this.storageRoot, 'Accounts', folderName);
         await fse.ensureDir(destDir);
 
-        logger.info('Accounts: processing all 22 fields', { recordId, sapId, accountName, destDir });
+        logger.info('Accounts: processing all 22 fields (parallel)', { recordId, sapId, accountName, parallelLimit: PARALLEL_LIMIT });
 
-        // ── Pre-fetch image field attachment IDs ─────────────────────────────
-        // image_upload fields don't return data in the standard record API,
-        // so we fetch them separately using fetchImageFieldAttachmentIds.
+        // Pre-fetch image field IDs (single API call, done once)
         const imageFieldData = await this.fetchImageFieldAttachmentIds(recordId);
 
-        const fieldResults = [];
-        let totalFiles   = 0;
-        let successCount = 0;
-        let failCount    = 0;
-        let emptyCount   = 0;
-        let downloadNum  = 0;  // global counter for delay timing
+        // Build task list — one task per file download
+        const tasks = [];
 
         for (const field of FILE_UPLOAD_FIELDS) {
 
-            // ── IMAGE UPLOAD fields ─────────────────────────────────────
             if (field.type === 'image_upload') {
+                const fieldDir    = path.join(destDir, field.apiName);
+                const fieldImages = imageFieldData[field.apiName] || null;
 
-                // Rate limit protection
-                if (downloadNum > 0) await new Promise(r => setTimeout(r, 2000));
-                downloadNum++;
-
-                const fieldDir      = path.join(destDir, field.apiName);
-                const fieldImages   = imageFieldData[field.apiName] || null;
-
-                // Pass each image attachment separately
-                const allResults = [];
                 if (fieldImages && fieldImages.length > 0) {
                     for (const imgAttachment of fieldImages) {
-                        const res = await this.downloadImageField(
-                            recordId, field.apiName, imgAttachment, fieldDir
-                        );
-                        allResults.push(...res);
+                        tasks.push(async () => ({
+                            fieldApiName: field.apiName,
+                            results: await this.downloadImageField(recordId, field.apiName, imgAttachment, fieldDir),
+                        }));
                     }
                 } else {
-                    // No image data — field is empty
-                    allResults.push({
-                        fileId: null, fileName: field.apiName,
-                        filePath: null, fileUrl: null,
-                        size: 0, status: 'no_image',
-                        error: 'No image uploaded in this field',
-                    });
-                }
-
-                const results = allResults;
-
-                const allNoImage = results.every(r => r.status === 'no_image');
-                const allOk      = results.every(r => r.status === 'ok');
-
-                if (allNoImage) {
-                    emptyCount++;
-                    fieldResults.push({
+                    tasks.push(async () => ({
                         fieldApiName: field.apiName,
-                        fieldLabel:   field.label,
-                        fieldType:    field.type,
-                        status:       'empty',
-                        message:      'No image uploaded in this field',
-                        files:        [],
-                    });
-                } else {
-                    totalFiles += results.length;
-                    if (allOk) {
-                        successCount += results.length;
-                    } else {
-                        failCount += results.filter(r => r.status === 'failed').length;
-                        successCount += results.filter(r => r.status === 'ok').length;
-                    }
-                    fieldResults.push({
-                        fieldApiName: field.apiName,
-                        fieldLabel:   field.label,
-                        fieldType:    field.type,
-                        status:       allOk ? 'ok' : 'failed',
-                        fileCount:    results.length,
-                        files:        results,
-                    });
+                        results: [{ fileId: null, fileName: field.apiName, filePath: null, fileUrl: null, size: 0, status: 'no_image', error: 'No image uploaded in this field' }],
+                    }));
                 }
                 continue;
             }
 
-            // ── FILE UPLOAD fields ──────────────────────────────────────
+            // FILE UPLOAD
             const fieldValue = record[field.apiName];
 
-            // Debug log — useful while testing
             logger.info('Accounts: field value', {
-                recordId,
-                field:     field.apiName,
+                recordId, field: field.apiName,
                 valueType: fieldValue === null ? 'null' : typeof fieldValue,
                 isArray:   Array.isArray(fieldValue),
                 value:     fieldValue ? JSON.stringify(fieldValue).slice(0, 200) : null,
             });
 
             if (!fieldValue || (Array.isArray(fieldValue) && fieldValue.length === 0)) {
-                fieldResults.push({
-                    fieldApiName: field.apiName,
-                    fieldLabel:   field.label,
-                    fieldType:    field.type,
-                    status:       'empty',
-                    message:      'No file uploaded in this field',
-                    files:        [],
-                });
-                emptyCount++;
+                tasks.push(async () => ({ fieldApiName: field.apiName, results: [], empty: true }));
                 continue;
             }
 
-            // Normalize: Zoho can return object, array, or (rarely) string
-            let files;
-            if (Array.isArray(fieldValue)) {
-                files = fieldValue;
-            } else if (typeof fieldValue === 'object' && fieldValue !== null) {
-                files = [fieldValue];
-            } else {
-                files = [{ file_Id: String(fieldValue), file_Name: `${field.apiName}` }];
-            }
-
-            const fieldFiles = [];
+            const files = Array.isArray(fieldValue) ? fieldValue
+                        : typeof fieldValue === 'object' ? [fieldValue]
+                        : [{ file_Id: String(fieldValue), file_Name: `${field.apiName}` }];
 
             for (const file of files) {
                 const fileId   = file.file_Id || file.id || file.attachment_Id || file.encrypted_id;
                 const fileName = file.file_Name || file.File_Name || file.name || `${field.apiName}_${fileId}`;
+                const fieldDir = path.join(destDir, field.apiName);
 
                 if (!fileId) {
-                    logger.warn('Accounts: file entry has no ID', { recordId, field: field.apiName, file });
-                    fieldFiles.push({
-                        fileId:   null,
-                        fileName,
-                        filePath: null,
-                        fileUrl:  null,
-                        status:   'failed',
-                        error:    'File entry has no ID — cannot download',
-                    });
-                    failCount++;
-                    totalFiles++;
+                    tasks.push(async () => ({
+                        fieldApiName: field.apiName,
+                        results: [{ fileId: null, fileName, filePath: null, fileUrl: null, status: 'failed', error: 'File entry has no ID — cannot download' }],
+                    }));
                     continue;
                 }
 
-                totalFiles++;
+                tasks.push(async () => ({
+                    fieldApiName: field.apiName,
+                    results: [await this.downloadFieldFile(recordId, fileId, fileName, fieldDir)],
+                }));
+            }
+        }
 
-                // Rate limit protection
-                if (downloadNum > 0) await new Promise(r => setTimeout(r, 2000));
-                downloadNum++;
+        // Run all tasks in parallel with concurrency limit
+        logger.info('Accounts: starting parallel downloads', { recordId, taskCount: tasks.length, parallelLimit: PARALLEL_LIMIT });
+        const taskOutputs = await runWithConcurrency(tasks, PARALLEL_LIMIT);
 
-                const fieldDir = path.join(destDir, field.apiName);
-                const result   = await this.downloadFieldFile(recordId, fileId, fileName, fieldDir);
+        // Aggregate results per field
+        const fieldMap = new Map();
+        for (const field of FILE_UPLOAD_FIELDS) {
+            fieldMap.set(field.apiName, { field, allResults: [], empty: false });
+        }
 
-                result.status === 'ok' ? successCount++ : failCount++;
-                fieldFiles.push(result);
+        for (const output of taskOutputs) {
+            const entry = fieldMap.get(output.fieldApiName);
+            if (!entry) continue;
+            if (output.empty) { entry.empty = true; }
+            else { entry.allResults.push(...output.results); }
+        }
+
+        const fieldResults = [];
+        let totalFiles = 0, successCount = 0, failCount = 0, emptyCount = 0;
+
+        for (const field of FILE_UPLOAD_FIELDS) {
+            const entry   = fieldMap.get(field.apiName);
+            const results = entry.allResults;
+
+            if (entry.empty || results.length === 0 || results.every(r => r.status === 'no_image')) {
+                emptyCount++;
+                fieldResults.push({
+                    fieldApiName: field.apiName, fieldLabel: field.label, fieldType: field.type,
+                    status: 'empty',
+                    message: field.type === 'image_upload' ? 'No image uploaded in this field' : 'No file uploaded in this field',
+                    files: [],
+                });
+                continue;
             }
 
+            const okCount   = results.filter(r => r.status === 'ok' || r.status === 'skipped').length;
+            const failedCount = results.filter(r => r.status === 'failed').length;
+
+            totalFiles   += results.length;
+            successCount += okCount;
+            failCount    += failedCount;
+
             fieldResults.push({
-                fieldApiName: field.apiName,
-                fieldLabel:   field.label,
-                fieldType:    field.type,
-                status:       fieldFiles.every(f => f.status === 'ok') ? 'ok' : 'partial',
-                fileCount:    fieldFiles.length,
-                files:        fieldFiles,
+                fieldApiName: field.apiName, fieldLabel: field.label, fieldType: field.type,
+                status:    failedCount === 0 ? 'ok' : 'partial',
+                fileCount: results.length,
+                files:     results,
             });
         }
 
@@ -719,9 +605,7 @@ class AccountFileUploadService {
         const statusApiCheck = totalFiles > 0 && failCount === 0;
 
         return {
-            recordId,
-            sapId:            folderName,
-            accountName,
+            recordId, sapId: folderName, accountName,
             status_api_check: statusApiCheck,
             storage_url:      publicUrl,
             summary: {
@@ -744,12 +628,7 @@ class AccountFileUploadService {
         const accounts = await this.fetchApprovedAccounts();
 
         if (!accounts.length) {
-            return {
-                status_api_check: false,
-                message:          'No approved accounts found',
-                total_accounts:   0,
-                results:          [],
-            };
+            return { status_api_check: false, message: 'No approved accounts found', total_accounts: 0, results: [] };
         }
 
         logger.info('Accounts: bulk sync started', { count: accounts.length });
@@ -763,17 +642,11 @@ class AccountFileUploadService {
                 results.push(result);
                 if (!result.status_api_check) allSuccess = false;
             } catch (err) {
-                logger.error('Accounts: failed to process record', {
-                    recordId:    account.id,
-                    accountName: account.Account_Name,
-                    error:       err.message,
-                });
+                logger.error('Accounts: failed to process record', { recordId: account.id, error: err.message });
                 results.push({
-                    recordId:         account.id,
-                    sapId:            account.SAP_ID || `crm-${account.id}`,
-                    accountName:      account.Account_Name || 'Unknown',
-                    status_api_check: false,
-                    error:            err.message,
+                    recordId: account.id, sapId: account.SAP_ID || `crm-${account.id}`,
+                    accountName: account.Account_Name || 'Unknown',
+                    status_api_check: false, error: err.message,
                 });
                 allSuccess = false;
             }
@@ -789,29 +662,22 @@ class AccountFileUploadService {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  7. Process a single account by record ID (with Status=Approved guard)
+    //  7. Process a single account by record ID
     // ═══════════════════════════════════════════════════════════════════════
 
     async processSingleAccount(recordId) {
         const record = await this.fetchAccountById(recordId);
 
         if (!record) {
-            return {
-                status_api_check: false,
-                error: { code: 'NOT_FOUND', message: `Account ${recordId} not found.` },
-            };
+            return { status_api_check: false, error: { code: 'NOT_FOUND', message: `Account ${recordId} not found.` } };
         }
 
         if (record.Status !== 'Approved') {
             return {
-                status_api_check: false,
-                recordId,
-                sapId:       record.SAP_ID || `crm-${record.id}`,
+                status_api_check: false, recordId,
+                sapId: record.SAP_ID || `crm-${record.id}`,
                 accountName: record.Account_Name || 'Unknown',
-                error: {
-                    code:    'NOT_APPROVED',
-                    message: `Account status is "${record.Status || 'null'}", expected "Approved".`,
-                },
+                error: { code: 'NOT_APPROVED', message: `Account status is "${record.Status || 'null'}", expected "Approved".` },
             };
         }
 
@@ -825,12 +691,7 @@ class AccountFileUploadService {
     async downloadSingleField(recordId, fieldName) {
         const fieldDef = FILE_UPLOAD_FIELDS.find(f => f.apiName === fieldName);
         if (!fieldDef) {
-            return {
-                error: {
-                    code:    'INVALID_FIELD',
-                    message: `"${fieldName}" is not a valid File Upload field. Check /accounts/:recordId/fields for valid names.`,
-                },
-            };
+            return { error: { code: 'INVALID_FIELD', message: `"${fieldName}" is not a valid File Upload field.` } };
         }
 
         const record = await this.fetchAccountById(recordId);
@@ -846,7 +707,6 @@ class AccountFileUploadService {
         let results;
 
         if (fieldDef.type === 'image_upload') {
-            // Image upload — fetch attachment_Id directly
             const imageFieldData = await this.fetchImageFieldAttachmentIds(recordId);
             const fieldImages    = imageFieldData[fieldName] || null;
 
@@ -857,28 +717,17 @@ class AccountFileUploadService {
                     results.push(...res);
                 }
             } else {
-                results = [{
-                    fileId: null, fileName: fieldName,
-                    filePath: null, fileUrl: null,
-                    size: 0, status: 'no_image',
-                    error: 'No image uploaded in this field',
-                }];
+                results = [{ fileId: null, fileName: fieldName, filePath: null, fileUrl: null, size: 0, status: 'no_image', error: 'No image uploaded in this field' }];
             }
         } else {
-            // File upload — get ID from record
             const value = record[fieldName];
 
             if (!value || (Array.isArray(value) && value.length === 0)) {
-                return {
-                    status_api_check: true,
-                    recordId,
-                    fieldName,
-                    message: `Field "${fieldName}" has no file — nothing to download.`,
-                };
+                return { status_api_check: true, recordId, fieldName, message: `Field "${fieldName}" has no file — nothing to download.` };
             }
 
-            const files  = Array.isArray(value) ? value : [value];
-            results      = [];
+            const files = Array.isArray(value) ? value : [value];
+            results     = [];
 
             for (const file of files) {
                 const fileId   = file.file_Id || file.id || file.attachment_Id || file.encrypted_id;
@@ -888,83 +737,55 @@ class AccountFileUploadService {
             }
         }
 
-        const allOk = results.every(r => r.status === 'ok');
+        const allOk = results.every(r => r.status === 'ok' || r.status === 'skipped');
 
         return {
             status_api_check: allOk,
-            recordId,
-            accountName:  record.Account_Name,
-            sapId:        folderName,
-            fieldName,
-            fieldLabel:   fieldDef.label,
-            fieldType:    fieldDef.type,
-            fileCount:    results.filter(r => r.status === 'ok').length,
-            files:        results,
+            recordId, accountName: record.Account_Name, sapId: folderName,
+            fieldName, fieldLabel: fieldDef.label, fieldType: fieldDef.type,
+            fileCount: results.filter(r => r.status === 'ok' || r.status === 'skipped').length,
+            files: results,
         };
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  9. Upload a file into a specific File Upload / Image Upload field
+    //  9. Upload a file into a specific field
     // ═══════════════════════════════════════════════════════════════════════
 
     async uploadFieldFile(recordId, fieldName, file) {
         const fieldDef = FILE_UPLOAD_FIELDS.find(f => f.apiName === fieldName);
         if (!fieldDef) {
-            return {
-                status_api_check: false,
-                error: {
-                    code:    'INVALID_FIELD',
-                    message: `"${fieldName}" is not a valid File Upload field.`,
-                },
-            };
+            return { status_api_check: false, error: { code: 'INVALID_FIELD', message: `"${fieldName}" is not a valid File Upload field.` } };
         }
 
         const record = await this.fetchAccountById(recordId);
         if (!record) {
-            return {
-                status_api_check: false,
-                error: { code: 'NOT_FOUND', message: `Account ${recordId} not found.` },
-            };
+            return { status_api_check: false, error: { code: 'NOT_FOUND', message: `Account ${recordId} not found.` } };
         }
 
         const token      = await auth.getToken();
         const folderName = record.SAP_ID || `crm-${record.id}`;
 
-        logger.info('AccountFileUploadService: uploadFieldFile', {
-            recordId, fieldName, fileName: file.originalname,
-        });
+        logger.info('AccountFileUploadService: uploadFieldFile', { recordId, fieldName, fileName: file.originalname });
 
         const FormData = (await import('form-data')).default;
         const form = new FormData();
-        form.append('file', file.buffer, {
-            filename:    file.originalname,
-            contentType: file.mimetype,
-        });
+        form.append('file', file.buffer, { filename: file.originalname, contentType: file.mimetype });
 
         let zohoResp;
         try {
             const { data } = await axios.post(
                 `${BASE}/Accounts/${recordId}/actions/upload_fields_attachment?fields_attachment_id=${fieldName}`,
                 form,
-                {
-                    headers:    { Authorization: `Zoho-oauthtoken ${token}`, ...form.getHeaders() },
-                    httpsAgent: zohoHttpsAgent,
-                    timeout:    60_000,
-                }
+                { headers: { Authorization: `Zoho-oauthtoken ${token}`, ...form.getHeaders() }, httpsAgent: zohoHttpsAgent, timeout: 60_000 }
             );
             zohoResp = data;
         } catch (err) {
             if (err.response?.status === 401) auth.clearToken();
-            logger.error('AccountFileUploadService: Zoho upload failed', {
-                recordId, fieldName, message: err.message,
-            });
-            return {
-                status_api_check: false,
-                error: { code: 'ZOHO_UPLOAD_FAILED', message: err.message, zoho: err.response?.data },
-            };
+            logger.error('AccountFileUploadService: Zoho upload failed', { recordId, fieldName, message: err.message });
+            return { status_api_check: false, error: { code: 'ZOHO_UPLOAD_FAILED', message: err.message, zoho: err.response?.data } };
         }
 
-        // Save a local copy
         const dir  = path.join(this.storageRoot, 'Accounts', folderName, fieldName);
         const dest = path.join(dir, file.originalname);
         await fse.ensureDir(dir);
@@ -974,17 +795,11 @@ class AccountFileUploadService {
         const storageUrl = `${baseUrl}/storage/Accounts/${folderName}/${fieldName}/${encodeURIComponent(file.originalname)}`;
 
         return {
-            status_api_check: true,
-            recordId,
-            accountName:  record.Account_Name,
-            sapId:        folderName,
-            fieldName,
-            fieldLabel:   fieldDef.label,
-            fileName:     file.originalname,
-            size:         file.size,
-            localPath:    dest,
-            storageUrl,
-            zohoResponse: zohoResp,
+            status_api_check: true, recordId,
+            accountName: record.Account_Name, sapId: folderName,
+            fieldName, fieldLabel: fieldDef.label,
+            fileName: file.originalname, size: file.size,
+            localPath: dest, storageUrl, zohoResponse: zohoResp,
         };
     }
 
@@ -994,7 +809,6 @@ class AccountFileUploadService {
 
     async listDownloadedAccounts() {
         const accountsDir = path.join(this.storageRoot, 'Accounts');
-
         if (!await fse.pathExists(accountsDir)) return [];
 
         const entries = await fse.readdir(accountsDir, { withFileTypes: true });
@@ -1003,11 +817,7 @@ class AccountFileUploadService {
         for (const folder of entries.filter(e => e.isDirectory())) {
             const folderPath = path.join(accountsDir, folder.name);
             const stats      = await this._scanFolder(folderPath);
-            results.push({
-                sapId: folder.name,
-                path:  `/storage/Accounts/${folder.name}`,
-                ...stats,
-            });
+            results.push({ sapId: folder.name, path: `/storage/Accounts/${folder.name}`, ...stats });
         }
 
         return results;
@@ -1019,13 +829,11 @@ class AccountFileUploadService {
 
     async listDownloadedFiles(sapId) {
         const accountDir = path.join(this.storageRoot, 'Accounts', sapId);
-
         if (!await fse.pathExists(accountDir)) return null;
 
         const fieldFolders = await fse.readdir(accountDir, { withFileTypes: true });
         const fields       = [];
-        let totalFiles     = 0;
-        let totalSize      = 0;
+        let totalFiles = 0, totalSize = 0;
 
         for (const ff of fieldFolders.filter(e => e.isDirectory())) {
             const fieldPath = path.join(accountDir, ff.name);
@@ -1035,17 +843,14 @@ class AccountFileUploadService {
             for (const f of files.filter(e => e.isFile())) {
                 const stat = await fse.stat(path.join(fieldPath, f.name));
                 fileList.push({
-                    name:     f.name,
-                    size:     stat.size,
-                    modified: stat.mtime,
-                    url:      `/storage/Accounts/${sapId}/${ff.name}/${encodeURIComponent(f.name)}`,
+                    name: f.name, size: stat.size, modified: stat.mtime,
+                    url: `/storage/Accounts/${sapId}/${ff.name}/${encodeURIComponent(f.name)}`,
                 });
                 totalFiles++;
                 totalSize += stat.size;
             }
 
             const fieldDef = FILE_UPLOAD_FIELDS.find(f => f.apiName === ff.name);
-
             fields.push({
                 fieldApiName: ff.name,
                 fieldLabel:   fieldDef?.label || ff.name,
@@ -1058,11 +863,8 @@ class AccountFileUploadService {
         return { sapId, totalFiles, totalSize, fields };
     }
 
-    // ── Private: count files and bytes in a folder tree ──────────────────
     async _scanFolder(folderPath) {
-        let fileCount = 0;
-        let totalSize = 0;
-
+        let fileCount = 0, totalSize = 0;
         const subfolders = await fse.readdir(folderPath, { withFileTypes: true });
 
         for (const sf of subfolders.filter(e => e.isDirectory())) {
@@ -1077,7 +879,6 @@ class AccountFileUploadService {
         return { fileCount, totalSize };
     }
 
-    // ── Expose fields list (used by pages / UI) ───────────────────────────
     getFieldDefinitions() {
         return FILE_UPLOAD_FIELDS;
     }
