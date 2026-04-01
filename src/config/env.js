@@ -23,6 +23,10 @@ export const env = {
     ZOHO_ACCOUNTS_URL:  get('ZOHO_ACCOUNTS_URL', 'https://accounts.zoho.in/oauth/v2/token'),
     ZOHO_API_DOMAIN:    get('ZOHO_API_DOMAIN', 'https://www.zohoapis.in'),
 
+    // Zoho Creator
+    ZOHO_CREATOR_OWNER: get('ZOHO_CREATOR_OWNER', 'zohoadmin_gharda782'),
+    ZOHO_CREATOR_APP:   get('ZOHO_CREATOR_APP',   'distributor-management-gharda-chemical'),
+
     // Storage on RDP / VM
     ATTACHMENT_DIR: get('ATTACHMENT_DIR', './storage/attachments'),
 
