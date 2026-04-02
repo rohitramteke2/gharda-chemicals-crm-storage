@@ -11,6 +11,7 @@ import { env, zohoHttpsAgent } from './config/env.js';
 import logger from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { apiLimiter, apiKeyAuth } from './middleware/auth.js';
+import { ipWhitelist } from './middleware/ipWhitelist.js';
 import auth from './services/ZohoAuthService.js';
 
 import accountRoutes from './routes/accounts.js';
@@ -113,7 +114,8 @@ export function createApp() {
         index:    false,
     }));
 
-    // ── HTML Pages — File browser UI (no auth) ───────────────────────────────
+    // ── HTML Pages — IP whitelisted (payment page stays public) ─────────────
+    app.use('/pages', ipWhitelist);
     app.use('/pages', pageRoutes);
 
     // ════════════════════════════════════════════════════════════════════════
