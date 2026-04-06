@@ -1,164 +1,73 @@
 /**
- * ZohoCreatorService.js
+ * services/ZohoCreatorService.js — Zoho Creator API integration.
  *
- * Handles Zoho Creator API calls for Payment_Logs module:
- *   - searchPaymentLog()  → find a log record by Merchant_Txn_No
- *   - updatePaymentLog()  → update it with ICICI response data
+ * Used to update Payment_Logs records after ICICI Bank sends
+ * transaction results back to the return URL.
  *
- * Reuses the existing ZohoAuthService token (same OAuth app).
- * Zoho Creator API base: https://creator.zoho.in/api/v2/{owner}/{app}
+ * Reuses the existing ZohoAuthService for OAuth token management.
  */
 
 import axios from 'axios';
-import { env } from '../config/env.js';
-import logger from '../utils/logger.js';
+import { env, zohoHttpsAgent } from '../config/env.js';
 import auth from './ZohoAuthService.js';
+import logger from '../utils/logger.js';
 
-// ── Creator API base ─────────────────────────────────────────────────────────
-const CREATOR_BASE = 'https://creator.zoho.in/api/v2';
-const OWNER        = env.ZOHO_CREATOR_OWNER || 'zohoadmin_gharda782';
-const APP          = env.ZOHO_CREATOR_APP   || 'distributor-management-gharda-chemical';
-const FORM         = 'Payment_Logs';
-const REPORT       = 'All_Payment_Logs';
+const OWNER = env.ZOHO_CREATOR_OWNER || 'zohoadmin_gharda782';
+const APP   = env.ZOHO_CREATOR_APP   || 'distributor-management-gharda-chemical';
 
 class ZohoCreatorService {
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  1. Search Payment_Logs by Merchant_Txn_No
-    //     Returns the record ID if found, null otherwise
-    // ═══════════════════════════════════════════════════════════════════════
-
-    async searchPaymentLog(merchantTxnNo) {
-        if (!merchantTxnNo) return null;
-
-        const token = await auth.getToken();
-
+    /**
+     * Search Payment_Logs by Merchant_Txn_No and update with ICICI response data.
+     */
+    async updatePaymentLog(merchantTxnNo, updateData) {
         try {
-            const url = `${CREATOR_BASE}/${OWNER}/${APP}/report/${REPORT}`;
+            const token = await auth.getToken();
 
-            const { data } = await axios.get(url, {
+            // Step 1: Search for the record by Merchant_Txn_No
+            const searchUrl = `https://creator.zoho.in/api/v2.1/${OWNER}/${APP}/report/All_Payment_Logs`;
+            const searchResp = await axios.get(searchUrl, {
                 headers: { Authorization: `Zoho-oauthtoken ${token}` },
-                params:  {
-                    criteria: `Merchant_Txn_No == "${merchantTxnNo}"`,
-                    limit:    1,
-                },
+                params: { criteria: `Merchant_Txn_No == "${merchantTxnNo}"` },
+                httpsAgent: zohoHttpsAgent,
                 timeout: 15_000,
             });
 
-            const records = data?.data || [];
-
-            if (records.length > 0) {
-                const recordId = records[0].ID || records[0].id;
-                logger.info('ZohoCreator: found Payment_Log record', {
-                    merchantTxnNo,
-                    recordId,
-                });
-                return recordId;
+            const records = searchResp.data?.data;
+            if (!records || records.length === 0) {
+                logger.warn('ZohoCreator: Payment log not found for update', { merchantTxnNo });
+                return null;
             }
 
-            logger.warn('ZohoCreator: Payment_Log record not found', { merchantTxnNo });
-            return null;
+            const recordId = records[0].ID;
 
-        } catch (err) {
-            if (err.response?.status === 401) auth.clearToken();
-            logger.error('ZohoCreator: searchPaymentLog failed', {
-                merchantTxnNo,
-                status:  err.response?.status,
-                message: err.message,
-                data:    err.response?.data,
-            });
-            return null;  // non-fatal — don't break the payment page
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  2. Update a Payment_Log record with ICICI response data
-    // ═══════════════════════════════════════════════════════════════════════
-
-    async updatePaymentLog(recordId, iciciParams) {
-        if (!recordId) return null;
-
-        const token = await auth.getToken();
-
-        const isSuccess = iciciParams.responseCode === '0000' ||
-                          iciciParams.responseCode?.startsWith('0000');
-
-        const updateData = {
-            data: {
-                Response_Code:    iciciParams.responseCode    || '',
-                Txn_ID:           iciciParams.txnID           || '',
-                Payment_ID:       iciciParams.paymentID       || '',
-                Payment_DateTime: iciciParams.paymentDateTime || '',
-                Payment_Mode:     iciciParams.paymentMode     || '',
-                Status:           isSuccess ? 'Success' : 'Failed',
-                Error_Message:    isSuccess ? '' : (iciciParams.respdescription || ''),
-            },
-        };
-
-        try {
-            const url = `${CREATOR_BASE}/${OWNER}/${APP}/report/${REPORT}/${recordId}`;
-
-            const { data } = await axios.patch(url, updateData, {
+            // Step 2: Update the record with ICICI response fields
+            const updateUrl = `https://creator.zoho.in/api/v2.1/${OWNER}/${APP}/report/All_Payment_Logs/${recordId}`;
+            const updateResp = await axios.patch(updateUrl, {
+                data: updateData,
+            }, {
                 headers: {
-                    Authorization:  `Zoho-oauthtoken ${token}`,
+                    Authorization: `Zoho-oauthtoken ${token}`,
                     'Content-Type': 'application/json',
                 },
+                httpsAgent: zohoHttpsAgent,
                 timeout: 15_000,
             });
 
-            logger.info('ZohoCreator: Payment_Log updated', {
-                recordId,
-                responseCode: iciciParams.responseCode,
-                txnID:        iciciParams.txnID,
-                status:       isSuccess ? 'Success' : 'Failed',
-                result:       data?.result,
-            });
-
-            return data;
-
-        } catch (err) {
-            if (err.response?.status === 401) auth.clearToken();
-            logger.error('ZohoCreator: updatePaymentLog failed', {
-                recordId,
-                status:  err.response?.status,
-                message: err.message,
-                data:    err.response?.data,
-            });
-            return null;  // non-fatal — don't break the payment page
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  3. Combined: search + update in one call
-    //     Used by the POST /pages/payment/success handler
-    // ═══════════════════════════════════════════════════════════════════════
-
-    async syncPaymentResult(iciciParams) {
-        const merchantTxnNo = iciciParams.merchantTxnNo;
-
-        if (!merchantTxnNo) {
-            logger.warn('ZohoCreator: syncPaymentResult — no merchantTxnNo, skipping');
-            return;
-        }
-
-        try {
-            // Step 1: find the log record
-            const recordId = await this.searchPaymentLog(merchantTxnNo);
-
-            if (!recordId) {
-                logger.warn('ZohoCreator: no log record found to update', { merchantTxnNo });
-                return;
-            }
-
-            // Step 2: update with ICICI response
-            await this.updatePaymentLog(recordId, iciciParams);
-
-        } catch (err) {
-            // Completely non-fatal — log and move on
-            logger.error('ZohoCreator: syncPaymentResult failed', {
+            logger.info('ZohoCreator: Payment log updated', {
                 merchantTxnNo,
-                message: err.message,
+                recordId,
+                status: updateData.Status || 'unknown',
             });
+
+            return updateResp.data;
+        } catch (err) {
+            logger.error('ZohoCreator: Failed to update payment log', {
+                merchantTxnNo,
+                error: err.message,
+                response: err.response?.data,
+            });
+            return null;
         }
     }
 }

@@ -114,8 +114,30 @@ export function createApp() {
         index:    false,
     }));
 
-    // ── HTML Pages — IP whitelisted (payment page stays public) ─────────────
-    app.use('/pages', ipWhitelist);
+    // ── HTML Pages ──────────────────────────────────────────────────────────
+    //
+    // IMPORTANT: IP whitelist is applied ONLY to /pages/accounts and /pages/docs.
+    // Payment pages (/pages/payment/*) must stay public because ICICI Bank
+    // redirects customers there from any IP after payment.
+    //
+    // The page routes are registered in this order inside routes/pages.js:
+    //   1. /pages/payment/success  (POST + GET)  — matched BEFORE the middleware below
+    //   2. /pages/docs             — matched AFTER middleware
+    //   3. /pages/accounts         — matched AFTER middleware
+    //   4. /pages/accounts/:sapId  — matched AFTER middleware
+    //
+    // Since Express matches routes in registration order, the payment routes
+    // in pageRoutes fire first. The ipWhitelist middleware below is applied
+    // specifically to /pages/accounts and /pages/docs paths.
+
+    // Payment pages — public (no IP restriction)
+    // These are handled first by the router since they're registered first in pages.js
+
+    // Accounts & Docs — IP restricted
+    app.use('/pages/accounts', ipWhitelist);
+    app.use('/pages/docs', ipWhitelist);
+
+    // Mount all page routes
     app.use('/pages', pageRoutes);
 
     // ════════════════════════════════════════════════════════════════════════

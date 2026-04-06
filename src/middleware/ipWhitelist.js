@@ -1,78 +1,103 @@
 /**
- * middleware/ipWhitelist.js
+ * middleware/ipWhitelist.js — IP-based access restriction.
  *
- * Restricts access to /pages/accounts (file browser) to whitelisted IPs only.
- * /pages/payment/success remains fully public (ICICI redirect must reach it).
+ * Only allows whitelisted IPs through. Applied to specific route groups in app.js.
  *
- * Add IPs to ALLOWED_IPS in .env.production:
- *   ALLOWED_IPS=27.107.69.106,10.0.0.5
- *
- * Or hardcode them below as fallback.
+ * Configuration:
+ *   ALLOWED_IPS=27.107.69.106,203.0.113.50   (comma-separated in .env)
+ *   Falls back to hardcoded default if env var is missing.
  */
 
-import logger from "../utils/logger.js";
-import { renderError } from "../views/pages.js";
+import logger from '../utils/logger.js';
 
-// ── Whitelisted IPs ──────────────────────────────────────────────────────────
-// Read from env (comma-separated) or use hardcoded fallback
-function getAllowedIPs() {
-    const fromEnv = process.env.ALLOWED_IPS || "";
-    const envList = fromEnv
-        .split(",")
-        .map((ip) => ip.trim())
-        .filter(Boolean);
+// ── Load allowed IPs ────────────────────────────────────────────────────────
+const DEFAULT_IPS = ['27.107.69.106'];
 
-    const hardcoded = [
-        "27.107.69.106", // Gharda office
-        "127.0.0.1", // localhost (VM internal access)
-        "::1", // localhost IPv6
-        "::ffff:127.0.0.1", // localhost mapped IPv4
-    ];
-
-    // Merge env list with hardcoded — env takes priority / extends the list
-    return [...new Set([...hardcoded, ...envList])];
+function loadAllowedIps() {
+    const raw = process.env.ALLOWED_IPS || '';
+    if (raw.trim()) {
+        return raw.split(',').map(ip => ip.trim()).filter(Boolean);
+    }
+    return DEFAULT_IPS;
 }
 
-// ── Extract real client IP ────────────────────────────────────────────────────
-// Handles proxies (IIS ARR) which may set X-Forwarded-For
-function getClientIP(req) {
-    const forwarded = req.headers["x-forwarded-for"];
+const ALLOWED = new Set(loadAllowedIps());
+
+// ── Extract real client IP (handles proxies, IIS ARR, etc.) ─────────────────
+function getClientIp(req) {
+    const forwarded = req.headers['x-forwarded-for'];
     if (forwarded) {
-        // X-Forwarded-For can be a comma-separated list — first one is the real client
-        return forwarded.split(",")[0].trim();
+        return forwarded.split(',')[0].trim();
     }
-    return req.ip || req.socket?.remoteAddress || "";
+    let ip = req.ip || req.connection?.remoteAddress || '';
+    if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+    return ip;
 }
 
-// ── Middleware ────────────────────────────────────────────────────────────────
+// ── Blocked page HTML ───────────────────────────────────────────────────────
+function renderBlocked(clientIp) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Restricted</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0f1117; color: #e4e6ef;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+        }
+        .wrap { text-align: center; max-width: 480px; padding: 40px 24px; }
+        .icon {
+            width: 72px; height: 72px; margin: 0 auto 24px;
+            background: rgba(248, 113, 113, 0.12); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 32px;
+        }
+        h1 { font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+        p { color: #8b8fa3; font-size: 14px; line-height: 1.6; margin-bottom: 8px; }
+        .ip {
+            display: inline-block; margin-top: 16px; padding: 6px 16px;
+            background: #1a1d27; border: 1px solid #2e3346; border-radius: 6px;
+            font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+            font-size: 13px; color: #f87171;
+        }
+        .footer { margin-top: 40px; font-size: 11px; color: #4a4e63; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="icon">&#128274;</div>
+        <h1>Access Restricted</h1>
+        <p>This page is only accessible from authorized network locations.</p>
+        <p>If you believe this is an error, contact your system administrator.</p>
+        <div class="ip">${clientIp}</div>
+        <div class="footer">Gharda Chemicals &mdash; Zoho CRM Integration</div>
+    </div>
+</body>
+</html>`;
+}
+
+// ── Middleware ───────────────────────────────────────────────────────────────
 export function ipWhitelist(req, res, next) {
-    // Always allow payment success page — ICICI redirect must reach it
-    if (req.path.startsWith("/payment/")) {
+    const clientIp = getClientIp(req);
+
+    // Allow localhost for internal health probes / dev
+    if (clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === 'localhost') {
         return next();
     }
 
-    const clientIP = getClientIP(req);
-    const allowedIPs = getAllowedIPs();
-    const isAllowed = allowedIPs.includes(clientIP);
-
-    if (isAllowed) {
+    if (ALLOWED.has(clientIp)) {
         return next();
     }
 
-    logger.warn("IP whitelist: access denied", {
-        ip: clientIP,
+    logger.warn('IP blocked', {
+        ip: clientIp,
         path: req.originalUrl,
-        allowed: allowedIPs,
+        method: req.method,
     });
 
-    // Return a clean HTML blocked page
-    return res.status(403).send(
-        renderError(
-            403,
-            "Access Restricted",
-            `This page is only accessible from authorised network locations.<br>
-         Your IP <code>${clientIP}</code> is not on the access list.<br><br>
-         Please contact your system administrator.`,
-        ),
-    );
+    return res.status(403).send(renderBlocked(clientIp));
 }
