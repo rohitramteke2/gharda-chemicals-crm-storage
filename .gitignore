@@ -10,3 +10,6 @@ working-code
 working-code*.zip
 src-fixed*
 *.zip
+db-import-scripts/output_csvs/farmers_combined.csv
+
+otis.py

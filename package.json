@@ -24,6 +24,8 @@
         "node-cache": "^5.1.2",
         "uuid": "^11.1.0",
         "winston": "^3.17.0",
-        "winston-daily-rotate-file": "^5.0.0"
+        "winston-daily-rotate-file": "^5.0.0",
+        "mssql": "^10.0.4",
+        "csv-parser": "^3.0.0"
     }
 }

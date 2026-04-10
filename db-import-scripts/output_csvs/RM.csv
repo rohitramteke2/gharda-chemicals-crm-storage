@@ -1,0 +1,63 @@
+﻿region_name,zone_name,rm_name,state_name
+Akola,West,Mr. Kapil Krishan,Maharashtra
+Chhatrapati Sambhajinagar,West,Mr. Varun Pathare,Maharashtra
+WMH-1,West,Mr. Dinesh Devre,Maharashtra
+WMH-2,West,Mr. Kantilal Jagtap,Maharashtra
+,West,,Maharashtra Total
+Central MP,West,Mr. Pawan Sharma,Madhya Pradesh
+Western MP,West,Mr. Pawan Gupta,Madhya Pradesh
+,West,,Madhya Pradesh Total
+Chhattisgarh,West,Mr. Satyendra Pandey,Chhattisgarh
+,West,,Chhattisgarh Total
+Gujarat - 1,West,Mr. Opinder Singh,Gujarat
+Gujarat - 2,West,Mr. Anuj,Gujarat
+,West,,Gujarat Total
+,West Total,,
+Panjab-1,North,Mr. Narveer Singh,Punjab
+Panjab-2,North,Mr. Balbeer Thakur,Punjab
+,North,,Punjab Total
+Rajasthan - North,North,Mr. Duniram Saharan,Rajasthan
+Rajasthan - South,North,Mr. G.S. Shekhawat & Mr. Sher Singh,Rajasthan
+,North,,Rajasthan Total
+Haryana Cotton,North,Mr. Deep Narayan Singh,Haryana
+Haryana Paddy,North,Mr. Sunil Singh,Haryana
+,North,,Haryana Total
+Central UP,North,Mr. Dheeraj Sahani,Uttar Pradesh
+Western UP,North,Mr. Dheeraj Sahani,Uttar Pradesh
+Eastern UP,North,Mr. HariOm Singh,Uttar Pradesh
+,North,,Uttar Pradesh Total
+Central UP,North,Mr. Dheeraj Sahani,Uttarakhand
+Western UP,North,Mr. Dheeraj Sahani,Uttarakhand
+,North,,Uttarakhand Total
+Bihar,North,Mr. Sandeep Kumar,Bihar
+,North,,Bihar Total
+,North Total,,
+Tamil Nadu,South,Mr. A.K. Mathaiya,Tamil Nadu
+,South,,Tamil Nadu Total
+Tamil Nadu,South,Mr. A.K. Mathaiya,Kerala
+,South,,Kerala Total
+Tamil Nadu,South,Mr. A.K. Mathaiya,Puducherry
+,South,,Puducherry Total
+Karnataka North,South,Mr. Govardhan,Karnataka
+Karnataka South,South,Mr. Senthil,Karnataka
+,South,,Karnataka Total
+Guntur,South,Mr. Y.Ramanaih,Andhra Pradesh
+Kurnool,South,Mr. Imam Sayed,Andhra Pradesh
+Rajmundari,South,Mr. M Raydu & Mr. T Sadashiv Rao,Andhra Pradesh
+,South,,Andhra Pradesh Total
+Hyderabad,South,Mr. Kiran Kumar,Telangana
+Warangal,South,Mr. Sriram Balaraju,Telangana
+,South,,Telangana Total
+,South Total,,
+Bengal & Odisha,East,Mr. Tanmoy Sar,West Bengal
+,East,,West Bengal Total
+Bengal & Odisha,East,Mr. Tanmoy Sar,Odisha
+,East,,Odisha Total
+Bengal & Odisha,East,Mr. Tanmoy Sar,Assam
+,East,,Assam Total
+Bengal & Odisha,East,Mr. Tanmoy Sar,Manipur
+,East,,Manipur Total
+Bengal & Odisha,East,Mr. Tanmoy Sar,Tripura
+,East,,Tripura Total
+,East Total,,
+,Grand Total,,

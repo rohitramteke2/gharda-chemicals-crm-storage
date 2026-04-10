@@ -1,0 +1,13 @@
+# ============================================================
+#  FARMER DB IMPORT — Python Dependencies
+#  Install with:  pip install -r requirements.txt
+# ============================================================
+
+# Excel file reading (.xlsx support)
+openpyxl==3.1.5
+
+# Data manipulation and CSV handling
+pandas==2.2.3
+
+# SQL Server connectivity (works with ODBC Driver 17)
+pyodbc==5.2.0
