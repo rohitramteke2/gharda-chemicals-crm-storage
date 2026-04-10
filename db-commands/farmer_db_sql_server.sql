@@ -1,129 +1,116 @@
 -- ============================================================
---  FARMER_DB — SQL SERVER SCHEMA
---  Corrected for Microsoft SQL Server (version 15.x)
---  Run this in SSMS or DBeaver connected to your SQL Server
+--  FARMER TABLES — inside existing ZOHO database
+--  All our tables are prefixed with  farm_
+--  so they're clearly separated from existing ZOHO tables
 --
---  IMPORTANT: This creates a brand new database called farmer_db
---  It does NOT touch any existing databases on the server
+--  HOW TO RUN IN SSMS / DBeaver:
+--  1. Make sure ZOHO is selected in the database dropdown
+--  2. Open this file
+--  3. Ctrl+A to select all  →  click Execute (or F5)
 -- ============================================================
 
--- ============================================================
--- CREATE THE DATABASE (runs once, safe to re-run)
--- ============================================================
-IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'farmer_db')
-BEGIN
-    CREATE DATABASE farmer_db;
-END
-GO
-
-USE farmer_db;
+USE ZOHO;
 GO
 
 -- ============================================================
--- DROP TABLES in reverse order (children before parents)
+-- SAFE CLEANUP: drops only OUR farm_ tables, nothing else
 -- ============================================================
-IF OBJECT_ID('dbo.farmers',             'U') IS NOT NULL DROP TABLE dbo.farmers;
-IF OBJECT_ID('dbo.dealers',             'U') IS NOT NULL DROP TABLE dbo.dealers;
-IF OBJECT_ID('dbo.distributors',        'U') IS NOT NULL DROP TABLE dbo.distributors;
-IF OBJECT_ID('dbo.territory_managers',  'U') IS NOT NULL DROP TABLE dbo.territory_managers;
-IF OBJECT_ID('dbo.rm_regions',          'U') IS NOT NULL DROP TABLE dbo.rm_regions;
-IF OBJECT_ID('dbo.regional_managers',   'U') IS NOT NULL DROP TABLE dbo.regional_managers;
-IF OBJECT_ID('dbo.villages',            'U') IS NOT NULL DROP TABLE dbo.villages;
-IF OBJECT_ID('dbo.markets',             'U') IS NOT NULL DROP TABLE dbo.markets;
-IF OBJECT_ID('dbo.territories',         'U') IS NOT NULL DROP TABLE dbo.territories;
-IF OBJECT_ID('dbo.regions',             'U') IS NOT NULL DROP TABLE dbo.regions;
-IF OBJECT_ID('dbo.states',              'U') IS NOT NULL DROP TABLE dbo.states;
-IF OBJECT_ID('dbo.zones',               'U') IS NOT NULL DROP TABLE dbo.zones;
+IF OBJECT_ID('dbo.farm_farmers',            'U') IS NOT NULL DROP TABLE dbo.farm_farmers;
+IF OBJECT_ID('dbo.farm_dealers',            'U') IS NOT NULL DROP TABLE dbo.farm_dealers;
+IF OBJECT_ID('dbo.farm_distributors',       'U') IS NOT NULL DROP TABLE dbo.farm_distributors;
+IF OBJECT_ID('dbo.farm_territory_managers', 'U') IS NOT NULL DROP TABLE dbo.farm_territory_managers;
+IF OBJECT_ID('dbo.farm_rm_regions',         'U') IS NOT NULL DROP TABLE dbo.farm_rm_regions;
+IF OBJECT_ID('dbo.farm_regional_managers',  'U') IS NOT NULL DROP TABLE dbo.farm_regional_managers;
+IF OBJECT_ID('dbo.farm_villages',           'U') IS NOT NULL DROP TABLE dbo.farm_villages;
+IF OBJECT_ID('dbo.farm_markets',            'U') IS NOT NULL DROP TABLE dbo.farm_markets;
+IF OBJECT_ID('dbo.farm_territories',        'U') IS NOT NULL DROP TABLE dbo.farm_territories;
+IF OBJECT_ID('dbo.farm_regions',            'U') IS NOT NULL DROP TABLE dbo.farm_regions;
+IF OBJECT_ID('dbo.farm_states',             'U') IS NOT NULL DROP TABLE dbo.farm_states;
+IF OBJECT_ID('dbo.farm_zones',              'U') IS NOT NULL DROP TABLE dbo.farm_zones;
 GO
 
 -- ============================================================
--- TABLE 1: ZONES
--- Values: North, South, East, West
+-- TABLE 1: farm_zones  (North, South, East, West)
 -- ============================================================
-CREATE TABLE dbo.zones (
+CREATE TABLE dbo.farm_zones (
     id         TINYINT       NOT NULL IDENTITY(1,1),
     name       NVARCHAR(20)  NOT NULL,
     created_at DATETIME2     NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2     NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_zones PRIMARY KEY (id),
-    CONSTRAINT UQ_zone_name UNIQUE (name)
+    CONSTRAINT PK_farm_zones     PRIMARY KEY (id),
+    CONSTRAINT UQ_farm_zone_name UNIQUE (name)
 );
 GO
 
 -- ============================================================
--- TABLE 2: STATES
--- Examples: Maharashtra, Punjab, Gujarat, West Bengal
+-- TABLE 2: farm_states  (Maharashtra, Punjab, Gujarat...)
 -- ============================================================
-CREATE TABLE dbo.states (
+CREATE TABLE dbo.farm_states (
     id           SMALLINT       NOT NULL IDENTITY(1,1),
     zone_id      TINYINT        NOT NULL,
     name         NVARCHAR(100)  NOT NULL,
     census_code  SMALLINT       NULL,
     created_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
     updated_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_states PRIMARY KEY (id),
-    CONSTRAINT UQ_state_name UNIQUE (name),
-    CONSTRAINT FK_state_zone FOREIGN KEY (zone_id)
-        REFERENCES dbo.zones(id)
+    CONSTRAINT PK_farm_states     PRIMARY KEY (id),
+    CONSTRAINT UQ_farm_state_name UNIQUE (name),
+    CONSTRAINT FK_farm_state_zone FOREIGN KEY (zone_id)
+        REFERENCES dbo.farm_zones(id)
 );
 GO
 
 -- ============================================================
--- TABLE 3: REGIONS
--- Examples: Akola, Central MP, Gujarat-1, Panjab-2
+-- TABLE 3: farm_regions  (Akola, Central MP, Gujarat-1...)
 -- ============================================================
-CREATE TABLE dbo.regions (
+CREATE TABLE dbo.farm_regions (
     id         SMALLINT       NOT NULL IDENTITY(1,1),
     state_id   SMALLINT       NOT NULL,
     name       NVARCHAR(100)  NOT NULL,
     created_at DATETIME2      NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2      NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_regions PRIMARY KEY (id),
-    CONSTRAINT UQ_region_state UNIQUE (state_id, name),
-    CONSTRAINT FK_region_state FOREIGN KEY (state_id)
-        REFERENCES dbo.states(id)
+    CONSTRAINT PK_farm_regions      PRIMARY KEY (id),
+    CONSTRAINT UQ_farm_region_state UNIQUE (state_id, name),
+    CONSTRAINT FK_farm_region_state FOREIGN KEY (state_id)
+        REFERENCES dbo.farm_states(id)
 );
 GO
 
 -- ============================================================
--- TABLE 4: TERRITORIES
--- Examples: Jalandhar, Bikaner, Abohar, Ahmedabad
+-- TABLE 4: farm_territories  (Abohar, Ahmedabad, Bikaner...)
 -- ============================================================
-CREATE TABLE dbo.territories (
+CREATE TABLE dbo.farm_territories (
     id         SMALLINT       NOT NULL IDENTITY(1,1),
     region_id  SMALLINT       NOT NULL,
     name       NVARCHAR(100)  NOT NULL,
     created_at DATETIME2      NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2      NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_territories PRIMARY KEY (id),
-    CONSTRAINT UQ_territory_region UNIQUE (region_id, name),
-    CONSTRAINT FK_territory_region FOREIGN KEY (region_id)
-        REFERENCES dbo.regions(id)
+    CONSTRAINT PK_farm_territories       PRIMARY KEY (id),
+    CONSTRAINT UQ_farm_territory_region  UNIQUE (region_id, name),
+    CONSTRAINT FK_farm_territory_region  FOREIGN KEY (region_id)
+        REFERENCES dbo.farm_regions(id)
 );
 GO
 
 -- ============================================================
--- TABLE 5: MARKETS
--- Examples: ABOHAR, PRANTIJ, SARKHEJ, BAVLA
+-- TABLE 5: farm_markets  (ABOHAR, PRANTIJ, SARKHEJ...)
 -- ============================================================
-CREATE TABLE dbo.markets (
+CREATE TABLE dbo.farm_markets (
     id           SMALLINT       NOT NULL IDENTITY(1,1),
     territory_id SMALLINT       NOT NULL,
     name         NVARCHAR(100)  NOT NULL,
     created_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
     updated_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_markets PRIMARY KEY (id),
-    CONSTRAINT UQ_market_territory UNIQUE (territory_id, name),
-    CONSTRAINT FK_market_territory FOREIGN KEY (territory_id)
-        REFERENCES dbo.territories(id)
+    CONSTRAINT PK_farm_markets          PRIMARY KEY (id),
+    CONSTRAINT UQ_farm_market_territory UNIQUE (territory_id, name),
+    CONSTRAINT FK_farm_market_territory FOREIGN KEY (territory_id)
+        REFERENCES dbo.farm_territories(id)
 );
 GO
 
 -- ============================================================
--- TABLE 6: VILLAGES
--- From "Demographic info" sheet — 482,545 rows
+-- TABLE 6: farm_villages  (482,545 rows from Demographic sheet)
 -- ============================================================
-CREATE TABLE dbo.villages (
+CREATE TABLE dbo.farm_villages (
     id                    INT             NOT NULL IDENTITY(1,1),
     territory_id          SMALLINT        NOT NULL,
     market_id             SMALLINT        NULL,
@@ -136,50 +123,49 @@ CREATE TABLE dbo.villages (
     hectares              DECIMAL(12,2)   NULL,
     created_at            DATETIME2       NOT NULL DEFAULT GETDATE(),
     updated_at            DATETIME2       NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_villages PRIMARY KEY (id),
-    CONSTRAINT FK_village_territory FOREIGN KEY (territory_id)
-        REFERENCES dbo.territories(id),
-    CONSTRAINT FK_village_market FOREIGN KEY (market_id)
-        REFERENCES dbo.markets(id)
+    CONSTRAINT PK_farm_villages          PRIMARY KEY (id),
+    CONSTRAINT FK_farm_village_territory FOREIGN KEY (territory_id)
+        REFERENCES dbo.farm_territories(id),
+    CONSTRAINT FK_farm_village_market    FOREIGN KEY (market_id)
+        REFERENCES dbo.farm_markets(id)
 );
 GO
-CREATE INDEX IX_village_name      ON dbo.villages(name);
-CREATE INDEX IX_village_territory ON dbo.villages(territory_id);
+CREATE INDEX IX_farm_village_name      ON dbo.farm_villages(name);
+CREATE INDEX IX_farm_village_territory ON dbo.farm_villages(territory_id);
 GO
 
 -- ============================================================
--- TABLE 7: REGIONAL MANAGERS
--- From "RM" sheet — Mr. Kapil Krishan, Mr. Pawan Sharma etc.
+-- TABLE 7: farm_regional_managers  (RM sheet)
 -- ============================================================
-CREATE TABLE dbo.regional_managers (
+CREATE TABLE dbo.farm_regional_managers (
     id         SMALLINT       NOT NULL IDENTITY(1,1),
     name       NVARCHAR(150)  NOT NULL,
     mobile     NVARCHAR(15)   NULL,
     email      NVARCHAR(150)  NULL,
     created_at DATETIME2      NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2      NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_regional_managers PRIMARY KEY (id)
+    CONSTRAINT PK_farm_regional_managers PRIMARY KEY (id)
 );
 GO
 
 -- ============================================================
--- TABLE 8: RM → REGION ASSIGNMENTS
--- One RM can manage multiple regions
+-- TABLE 8: farm_rm_regions  (one RM manages many regions)
 -- ============================================================
-CREATE TABLE dbo.rm_regions (
+CREATE TABLE dbo.farm_rm_regions (
     rm_id     SMALLINT  NOT NULL,
     region_id SMALLINT  NOT NULL,
-    CONSTRAINT PK_rm_regions PRIMARY KEY (rm_id, region_id),
-    CONSTRAINT FK_rmr_rm     FOREIGN KEY (rm_id)     REFERENCES dbo.regional_managers(id),
-    CONSTRAINT FK_rmr_region FOREIGN KEY (region_id) REFERENCES dbo.regions(id)
+    CONSTRAINT PK_farm_rm_regions PRIMARY KEY (rm_id, region_id),
+    CONSTRAINT FK_farm_rmr_rm     FOREIGN KEY (rm_id)
+        REFERENCES dbo.farm_regional_managers(id),
+    CONSTRAINT FK_farm_rmr_region FOREIGN KEY (region_id)
+        REFERENCES dbo.farm_regions(id)
 );
 GO
 
 -- ============================================================
--- TABLE 9: TERRITORY MANAGERS
--- From "TM" sheet — Paras Kumar, Singh Bhawneet etc.
+-- TABLE 9: farm_territory_managers  (TM sheet)
 -- ============================================================
-CREATE TABLE dbo.territory_managers (
+CREATE TABLE dbo.farm_territory_managers (
     id           SMALLINT       NOT NULL IDENTITY(1,1),
     rm_id        SMALLINT       NOT NULL,
     territory_id SMALLINT       NOT NULL,
@@ -188,17 +174,18 @@ CREATE TABLE dbo.territory_managers (
     email        NVARCHAR(150)  NULL,
     created_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
     updated_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_territory_managers PRIMARY KEY (id),
-    CONSTRAINT FK_tm_rm        FOREIGN KEY (rm_id)        REFERENCES dbo.regional_managers(id),
-    CONSTRAINT FK_tm_territory FOREIGN KEY (territory_id) REFERENCES dbo.territories(id)
+    CONSTRAINT PK_farm_territory_managers PRIMARY KEY (id),
+    CONSTRAINT FK_farm_tm_rm        FOREIGN KEY (rm_id)
+        REFERENCES dbo.farm_regional_managers(id),
+    CONSTRAINT FK_farm_tm_territory FOREIGN KEY (territory_id)
+        REFERENCES dbo.farm_territories(id)
 );
 GO
 
 -- ============================================================
--- TABLE 10: DISTRIBUTORS
--- From "Distributor" sheet — 10,059 rows
+-- TABLE 10: farm_distributors  (10,059 rows)
 -- ============================================================
-CREATE TABLE dbo.distributors (
+CREATE TABLE dbo.farm_distributors (
     id                INT            NOT NULL IDENTITY(1,1),
     territory_id      SMALLINT       NOT NULL,
     firm_name         NVARCHAR(250)  NOT NULL,
@@ -206,19 +193,18 @@ CREATE TABLE dbo.distributors (
     business_category NVARCHAR(10)   NULL,
     created_at        DATETIME2      NOT NULL DEFAULT GETDATE(),
     updated_at        DATETIME2      NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_distributors PRIMARY KEY (id),
-    CONSTRAINT FK_dist_territory FOREIGN KEY (territory_id)
-        REFERENCES dbo.territories(id)
+    CONSTRAINT PK_farm_distributors   PRIMARY KEY (id),
+    CONSTRAINT FK_farm_dist_territory FOREIGN KEY (territory_id)
+        REFERENCES dbo.farm_territories(id)
 );
 GO
-CREATE INDEX IX_dist_mobile ON dbo.distributors(mobile);
+CREATE INDEX IX_farm_dist_mobile ON dbo.farm_distributors(mobile);
 GO
 
 -- ============================================================
--- TABLE 11: DEALERS
--- From "Dealer" sheet — 33,911 rows
+-- TABLE 11: farm_dealers  (33,911 rows)
 -- ============================================================
-CREATE TABLE dbo.dealers (
+CREATE TABLE dbo.farm_dealers (
     id           INT            NOT NULL IDENTITY(1,1),
     market_id    SMALLINT       NOT NULL,
     firm_name    NVARCHAR(250)  NOT NULL,
@@ -227,19 +213,18 @@ CREATE TABLE dbo.dealers (
     category     NVARCHAR(10)   NULL,
     created_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
     updated_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_dealers PRIMARY KEY (id),
-    CONSTRAINT FK_dealer_market FOREIGN KEY (market_id)
-        REFERENCES dbo.markets(id)
+    CONSTRAINT PK_farm_dealers       PRIMARY KEY (id),
+    CONSTRAINT FK_farm_dealer_market FOREIGN KEY (market_id)
+        REFERENCES dbo.farm_markets(id)
 );
 GO
-CREATE INDEX IX_dealer_mobile ON dbo.dealers(mobile);
+CREATE INDEX IX_farm_dealer_mobile ON dbo.farm_dealers(mobile);
 GO
 
 -- ============================================================
--- TABLE 12: FARMERS  (Farmer + Farmer 2 sheets → same table)
--- From both Farmer sheets — 1,262,634 rows total
+-- TABLE 12: farm_farmers  (1,262,634 rows — both Farmer sheets)
 -- ============================================================
-CREATE TABLE dbo.farmers (
+CREATE TABLE dbo.farm_farmers (
     id           INT            NOT NULL IDENTITY(1,1),
     market_id    SMALLINT       NOT NULL,
     village_id   INT            NULL,
@@ -248,62 +233,61 @@ CREATE TABLE dbo.farmers (
     category     NVARCHAR(10)   NULL,
     created_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
     updated_at   DATETIME2      NOT NULL DEFAULT GETDATE(),
-    CONSTRAINT PK_farmers PRIMARY KEY (id),
-    CONSTRAINT FK_farmer_market  FOREIGN KEY (market_id)  REFERENCES dbo.markets(id),
-    CONSTRAINT FK_farmer_village FOREIGN KEY (village_id) REFERENCES dbo.villages(id)
+    CONSTRAINT PK_farm_farmers        PRIMARY KEY (id),
+    CONSTRAINT FK_farm_farmer_market  FOREIGN KEY (market_id)
+        REFERENCES dbo.farm_markets(id),
+    CONSTRAINT FK_farm_farmer_village FOREIGN KEY (village_id)
+        REFERENCES dbo.farm_villages(id)
 );
 GO
-CREATE INDEX IX_farmer_mobile   ON dbo.farmers(mobile);
-CREATE INDEX IX_farmer_category ON dbo.farmers(category);
-CREATE INDEX IX_farmer_village  ON dbo.farmers(village_id);
+CREATE INDEX IX_farm_farmer_mobile   ON dbo.farm_farmers(mobile);
+CREATE INDEX IX_farm_farmer_category ON dbo.farm_farmers(category);
+CREATE INDEX IX_farm_farmer_village  ON dbo.farm_farmers(village_id);
 GO
 
 -- ============================================================
--- VERIFY: list all 12 tables
+-- VERIFY: shows all 12 farm_ tables just created
 -- ============================================================
 SELECT TABLE_NAME
 FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_CATALOG = 'farmer_db'
-  AND TABLE_TYPE = 'BASE TABLE'
+WHERE TABLE_CATALOG = 'ZOHO'
+  AND TABLE_TYPE    = 'BASE TABLE'
+  AND TABLE_NAME LIKE 'farm_%'
 ORDER BY TABLE_NAME;
 GO
 
 -- ============================================================
 -- SEED: 4 Zones
 -- ============================================================
-INSERT INTO dbo.zones (name) VALUES ('North'), ('South'), ('East'), ('West');
+INSERT INTO dbo.farm_zones (name)
+VALUES ('North'), ('South'), ('East'), ('West');
 GO
 
 -- ============================================================
--- SEED: All 35 States with census codes
+-- SEED: All 35 States with correct zone assignments
 -- ============================================================
-INSERT INTO dbo.states (zone_id, name, census_code) VALUES
--- West (zone id=4)
+INSERT INTO dbo.farm_states (zone_id, name, census_code) VALUES
 (4, 'Chhattisgarh',                22),
 (4, 'Gujarat',                     24),
 (4, 'Madhya Pradesh',              23),
 (4, 'Maharashtra',                 27),
--- North (zone id=1)
 (1, 'Bihar',                       10),
 (1, 'Haryana',                      6),
 (1, 'Punjab',                       3),
 (1, 'Rajasthan',                    8),
 (1, 'Uttar Pradesh',                9),
 (1, 'Uttarakhand',                  5),
--- South (zone id=2)
 (2, 'Karnataka',                   29),
 (2, 'Kerala',                      32),
 (2, 'Puducherry',                  34),
 (2, 'Tamil Nadu',                  33),
 (2, 'Andhra Pradesh',              28),
 (2, 'Telangana',                   36),
--- East (zone id=3)
 (3, 'Assam',                       18),
 (3, 'Manipur',                     14),
 (3, 'Odisha',                      21),
 (3, 'Tripura',                     16),
 (3, 'West Bengal',                 19),
--- States present in master data but no active records yet
 (1, 'Arunachal Pradesh',           12),
 (3, 'Meghalaya',                   17),
 (3, 'Mizoram',                     15),
@@ -322,8 +306,9 @@ INSERT INTO dbo.states (zone_id, name, census_code) VALUES
 GO
 
 -- ============================================================
--- FINAL CHECK: row counts
+-- FINAL CHECK: confirm zones and states loaded correctly
 -- ============================================================
-SELECT 'zones'  AS tbl, COUNT(*) AS rows FROM dbo.zones
-UNION ALL SELECT 'states', COUNT(*) FROM dbo.states;
+SELECT 'farm_zones'  AS table_name, COUNT(*) AS row_count FROM dbo.farm_zones
+UNION ALL
+SELECT 'farm_states', COUNT(*) FROM dbo.farm_states;
 GO
