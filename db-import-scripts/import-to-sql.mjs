@@ -1,25 +1,31 @@
 /**
- * FARMER DB — CSV to SQL Server Importer
- * =======================================
- * ES Module version (.mjs) — uses import syntax
- * Compatible with projects using "type": "module"
+ * FARMER DB — CSV to SQL Server Importer (ES Module)
+ * ===================================================
+ * Compatible with Node.js v24 + "type": "module" projects
  *
- * SETUP (run once):
- *   npm install mssql csv-parser
- *
- * RUN:
- *   node import-to-sql.mjs
+ * SETUP: npm install mssql csv-parser
+ * RUN:   node import-to-sql.mjs
  */
 
-import sql       from 'mssql';
-import fs        from 'fs';
-import path      from 'path';
-import csvParser from 'csv-parser';
-import { fileURLToPath } from 'url';
+import { createReadStream, existsSync } from 'fs';
+import { join, dirname }               from 'path';
+import { fileURLToPath }               from 'url';
+import csvParser                       from 'csv-parser';
 
-// ES module replacement for __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+// mssql ESM-compatible import
+import mssql from 'mssql';
+const {
+    connect,
+    NVarChar,
+    SmallInt,
+    TinyInt,
+    Int,
+    Decimal,
+    Table,
+    Request,
+} = mssql;
+
+const CSV_FOLDER = "C:\\Users\\zoho.crm\\Desktop\\production\\gharda-crm-api\\db-import-scripts\\output_csvs";
 
 // ============================================================
 // CONFIG — fill in your real password
@@ -28,7 +34,7 @@ const DB_CONFIG = {
     server:   'localhost',
     database: 'ZOHO',
     user:     'zoho',
-    password: 'YOUR_PASSWORD_HERE',  // <-- fill in real password
+    password: 'YOUR_PASSWORD_HERE',   // <-- fill in real password
     options: {
         trustServerCertificate: true,
         enableArithAbort:       true,
@@ -37,7 +43,6 @@ const DB_CONFIG = {
     pool: { max: 10, min: 0, idleTimeoutMillis: 30000 }
 };
 
-const CSV_FOLDER = path.join(__dirname, 'output_csvs');
 
 // ============================================================
 // HELPERS
@@ -48,12 +53,12 @@ const log = (msg) => {
 };
 
 const readCSV = (filename) => new Promise((resolve, reject) => {
-    const rows = [];
-    const filepath = path.join(CSV_FOLDER, filename);
-    if (!fs.existsSync(filepath)) {
+    const rows     = [];
+    const filepath = join(CSV_FOLDER, filename);
+    if (!existsSync(filepath)) {
         return reject(new Error(`CSV not found: ${filepath}`));
     }
-    fs.createReadStream(filepath)
+    createReadStream(filepath)
         .pipe(csvParser())
         .on('data', row => {
             const cleaned = {};
@@ -69,10 +74,10 @@ const readCSV = (filename) => new Promise((resolve, reject) => {
 const getId = async (pool, table, nameCol, nameVal, extraCol = null, extraVal = null) => {
     if (!nameVal) return null;
     let query = `SELECT id FROM dbo.${table} WHERE ${nameCol} = @name`;
-    const req = pool.request().input('name', sql.NVarChar, nameVal);
+    const req = pool.request().input('name', NVarChar, nameVal);
     if (extraCol) {
         query += ` AND ${extraCol} = @extra`;
-        req.input('extra', sql.Int, extraVal);
+        req.input('extra', Int, extraVal);
     }
     const result = await req.query(query);
     return result.recordset[0]?.id ?? null;
@@ -104,8 +109,8 @@ const loadRM = async (pool) => {
         let regionId = await getId(pool, 'farm_regions', 'name', regionName, 'state_id', stateId);
         if (!regionId) {
             const r = await pool.request()
-                .input('sid',  sql.SmallInt, stateId)
-                .input('name', sql.NVarChar, regionName)
+                .input('sid',  SmallInt, stateId)
+                .input('name', NVarChar, regionName)
                 .query(`INSERT INTO dbo.farm_regions (state_id, name)
                         OUTPUT INSERTED.id VALUES (@sid, @name)`);
             regionId = r.recordset[0].id;
@@ -116,21 +121,21 @@ const loadRM = async (pool) => {
             let rmId = await getId(pool, 'farm_regional_managers', 'name', rmName);
             if (!rmId) {
                 const r = await pool.request()
-                    .input('name', sql.NVarChar, rmName)
+                    .input('name', NVarChar, rmName)
                     .query(`INSERT INTO dbo.farm_regional_managers (name)
                             OUTPUT INSERTED.id VALUES (@name)`);
                 rmId = r.recordset[0].id;
                 rmsAdded++;
             }
             const exists = await pool.request()
-                .input('rm', sql.SmallInt, rmId)
-                .input('rg', sql.SmallInt, regionId)
+                .input('rm', SmallInt, rmId)
+                .input('rg', SmallInt, regionId)
                 .query(`SELECT 1 FROM dbo.farm_rm_regions
                         WHERE rm_id=@rm AND region_id=@rg`);
             if (!exists.recordset.length) {
                 await pool.request()
-                    .input('rm', sql.SmallInt, rmId)
-                    .input('rg', sql.SmallInt, regionId)
+                    .input('rm', SmallInt, rmId)
+                    .input('rg', SmallInt, regionId)
                     .query(`INSERT INTO dbo.farm_rm_regions (rm_id, region_id)
                             VALUES (@rm, @rg)`);
                 linksAdded++;
@@ -167,8 +172,8 @@ const loadTM = async (pool) => {
         let territoryId = await getId(pool, 'farm_territories', 'name', territoryName, 'region_id', regionId);
         if (!territoryId) {
             const r = await pool.request()
-                .input('rid',  sql.SmallInt, regionId)
-                .input('name', sql.NVarChar, territoryName)
+                .input('rid',  SmallInt, regionId)
+                .input('name', NVarChar, territoryName)
                 .query(`INSERT INTO dbo.farm_territories (region_id, name)
                         OUTPUT INSERTED.id VALUES (@rid, @name)`);
             territoryId = r.recordset[0].id;
@@ -179,15 +184,15 @@ const loadTM = async (pool) => {
             const rmId = await getId(pool, 'farm_regional_managers', 'name', rmName);
             if (rmId) {
                 const exists = await pool.request()
-                    .input('name', sql.NVarChar, tmName)
-                    .input('tid',  sql.SmallInt, territoryId)
+                    .input('name', NVarChar, tmName)
+                    .input('tid',  SmallInt, territoryId)
                     .query(`SELECT 1 FROM dbo.farm_territory_managers
                             WHERE name=@name AND territory_id=@tid`);
                 if (!exists.recordset.length) {
                     await pool.request()
-                        .input('rmid', sql.SmallInt, rmId)
-                        .input('tid',  sql.SmallInt, territoryId)
-                        .input('name', sql.NVarChar,  tmName)
+                        .input('rmid', SmallInt, rmId)
+                        .input('tid',  SmallInt, territoryId)
+                        .input('name', NVarChar,  tmName)
                         .query(`INSERT INTO dbo.farm_territory_managers
                                 (rm_id, territory_id, name)
                                 VALUES (@rmid, @tid, @name)`);
@@ -231,8 +236,8 @@ const loadMarkets = async (pool) => {
             const exists = await getId(pool, 'farm_markets', 'name', marketName, 'territory_id', territoryId);
             if (!exists) {
                 await pool.request()
-                    .input('tid',  sql.SmallInt, territoryId)
-                    .input('name', sql.NVarChar,  marketName)
+                    .input('tid',  SmallInt, territoryId)
+                    .input('name', NVarChar, marketName)
                     .query(`INSERT INTO dbo.farm_markets (territory_id, name)
                             VALUES (@tid, @name)`);
                 marketsAdded++;
@@ -243,7 +248,7 @@ const loadMarkets = async (pool) => {
 };
 
 // ============================================================
-// STEP 4: Villages (Demographic_info.csv — 482,545 rows)
+// STEP 4: Villages (482,545 rows)
 // ============================================================
 const loadVillages = async (pool) => {
     log('='.repeat(55));
@@ -255,16 +260,16 @@ const loadVillages = async (pool) => {
 
     const flush = async () => {
         if (!batch.length) return;
-        const table = new sql.Table('dbo.farm_villages');
+        const table = new Table('dbo.farm_villages');
         table.create = false;
-        table.columns.add('territory_id',          sql.SmallInt,     { nullable: false });
-        table.columns.add('name',                  sql.NVarChar(150),{ nullable: false });
-        table.columns.add('district',              sql.NVarChar(100),{ nullable: true  });
-        table.columns.add('taluk',                 sql.NVarChar(100),{ nullable: true  });
-        table.columns.add('geographical_area_km2', sql.Decimal(10,2),{ nullable: true  });
-        table.columns.add('population',            sql.Int,          { nullable: true  });
-        table.columns.add('acreage',               sql.Decimal(12,2),{ nullable: true  });
-        table.columns.add('hectares',              sql.Decimal(12,2),{ nullable: true  });
+        table.columns.add('territory_id',          SmallInt,       { nullable: false });
+        table.columns.add('name',                  NVarChar(150),  { nullable: false });
+        table.columns.add('district',              NVarChar(100),  { nullable: true  });
+        table.columns.add('taluk',                 NVarChar(100),  { nullable: true  });
+        table.columns.add('geographical_area_km2', Decimal(10, 2), { nullable: true  });
+        table.columns.add('population',            Int,            { nullable: true  });
+        table.columns.add('acreage',               Decimal(12, 2), { nullable: true  });
+        table.columns.add('hectares',              Decimal(12, 2), { nullable: true  });
         for (const r of batch) table.rows.add(...r);
         await pool.request().bulk(table);
         inserted += batch.length;
@@ -327,10 +332,10 @@ const loadDistributors = async (pool) => {
         if (!territoryId) { skipped++; continue; }
 
         await pool.request()
-            .input('tid', sql.SmallInt, territoryId)
-            .input('fn',  sql.NVarChar, firmName)
-            .input('mob', sql.NVarChar, row.mobile            ?? null)
-            .input('cat', sql.NVarChar, row.business_category ?? null)
+            .input('tid', SmallInt, territoryId)
+            .input('fn',  NVarChar, firmName)
+            .input('mob', NVarChar, row.mobile            || null)
+            .input('cat', NVarChar, row.business_category || null)
             .query(`INSERT INTO dbo.farm_distributors
                     (territory_id, firm_name, mobile, business_category)
                     VALUES (@tid, @fn, @mob, @cat)`);
@@ -367,11 +372,11 @@ const loadDealers = async (pool) => {
         if (!marketId) { skipped++; continue; }
 
         await pool.request()
-            .input('mid',  sql.SmallInt, marketId)
-            .input('fn',   sql.NVarChar, firmName)
-            .input('code', sql.NVarChar, row.dealer_code ?? null)
-            .input('mob',  sql.NVarChar, row.mobile      ?? null)
-            .input('cat',  sql.NVarChar, row.category    ?? null)
+            .input('mid',  SmallInt, marketId)
+            .input('fn',   NVarChar, firmName)
+            .input('code', NVarChar, row.dealer_code || null)
+            .input('mob',  NVarChar, row.mobile      || null)
+            .input('cat',  NVarChar, row.category    || null)
             .query(`INSERT INTO dbo.farm_dealers
                     (market_id, firm_name, dealer_code, mobile, category)
                     VALUES (@mid, @fn, @code, @mob, @cat)`);
@@ -382,7 +387,7 @@ const loadDealers = async (pool) => {
 };
 
 // ============================================================
-// STEP 7: Farmers (1,262,634 rows) — bulk insert with cache
+// STEP 7: Farmers (1,262,634 rows) — bulk + cache
 // ============================================================
 const loadFarmers = async (pool) => {
     log('='.repeat(55));
@@ -398,13 +403,13 @@ const loadFarmers = async (pool) => {
 
     const flush = async () => {
         if (!batch.length) return;
-        const table = new sql.Table('dbo.farm_farmers');
+        const table = new Table('dbo.farm_farmers');
         table.create = false;
-        table.columns.add('market_id',  sql.SmallInt,     { nullable: false });
-        table.columns.add('village_id', sql.Int,          { nullable: true  });
-        table.columns.add('name',       sql.NVarChar(150),{ nullable: false });
-        table.columns.add('mobile',     sql.NVarChar(15), { nullable: true  });
-        table.columns.add('category',   sql.NVarChar(10), { nullable: true  });
+        table.columns.add('market_id',  SmallInt,      { nullable: false });
+        table.columns.add('village_id', Int,           { nullable: true  });
+        table.columns.add('name',       NVarChar(150), { nullable: false });
+        table.columns.add('mobile',     NVarChar(15),  { nullable: true  });
+        table.columns.add('category',   NVarChar(10),  { nullable: true  });
         for (const r of batch) table.rows.add(...r);
         await pool.request().bulk(table);
         inserted += batch.length;
@@ -421,7 +426,6 @@ const loadFarmers = async (pool) => {
         const farmerName    = row.farmer_name?.trim()    ?? '';
         if (!farmerName || !marketName) { skipped++; continue; }
 
-        // Territory (cached)
         const tKey = `${stateName}|${regionName}|${territoryName}`;
         if (!territoryCache.has(tKey)) {
             const stateId = await getId(pool, 'farm_states', 'name', stateName);
@@ -439,7 +443,6 @@ const loadFarmers = async (pool) => {
         const territoryId = territoryCache.get(tKey);
         if (!territoryId) { skipped++; continue; }
 
-        // Market (cached)
         const mKey = `${territoryId}|${marketName}`;
         if (!marketCache.has(mKey)) {
             marketCache.set(mKey, await getId(pool, 'farm_markets', 'name', marketName, 'territory_id', territoryId));
@@ -447,7 +450,6 @@ const loadFarmers = async (pool) => {
         const marketId = marketCache.get(mKey);
         if (!marketId) { skipped++; continue; }
 
-        // Village (cached)
         let villageId = null;
         if (villageName) {
             const vKey = `${territoryId}|${villageName}`;
@@ -502,14 +504,14 @@ const main = async () => {
         console.error('\nERROR: Set your real password in DB_CONFIG at the top!');
         process.exit(1);
     }
-    if (!fs.existsSync(CSV_FOLDER)) {
+    if (!existsSync(CSV_FOLDER)) {
         console.error(`\nERROR: Cannot find folder: ${CSV_FOLDER}`);
         console.error('Put output_csvs in the same folder as this script');
         process.exit(1);
     }
 
     log('Connecting to SQL Server at localhost...');
-    const pool = await sql.connect(DB_CONFIG);
+    const pool = await connect(DB_CONFIG);
     log('Connected successfully!');
 
     await loadRM(pool);
