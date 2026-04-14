@@ -1,7 +1,13 @@
 import SQLService     from '../services/SQLService.js';
 import StorageService from '../services/StorageService.js';
 import { validate, schemas } from '../utils/validator.js';
-import { AppError }  from '../middleware/errorHandler.js';
+class AppError extends Error {
+    constructor(message, statusCode, code) {
+        super(message);
+        this.statusCode = statusCode;
+        this.code       = code;
+    }
+}
 import logger        from '../utils/logger.js';
 
 class SQLController {
