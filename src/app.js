@@ -15,12 +15,13 @@ import { ipWhitelist } from './middleware/ipWhitelist.js';
 import auth from './services/ZohoAuthService.js';
 
 import accountRoutes from './routes/accounts.js';
+import farmerRoutes from './routes/farmers.js';
 import pageRoutes from './routes/pages.js';
 import { renderError } from './views/pages.js';
 
 export function createApp() {
     const app = express();
-    app.set('trust proxy', 1);
+    app.set('trust proxy', true);
     const prefix = `/api/${env.API_VERSION}`;
 
     // ── Security ────────────────────────────────────────────────────────────
@@ -149,6 +150,7 @@ export function createApp() {
 
     // ── Accounts — all endpoints ─────────────────────────────────────────────
     app.use(`${prefix}/accounts`, accountRoutes);
+    app.use(`${prefix}/farmers`, farmerRoutes);
 
     // ── 404 ──────────────────────────────────────────────────────────────────
     app.use((req, res) => {

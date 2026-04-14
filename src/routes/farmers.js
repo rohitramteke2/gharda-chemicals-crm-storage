@@ -4,27 +4,51 @@ import ctrl from '../controllers/FarmerController.js';
 const router = Router();
 
 // ════════════════════════════════════════════════════════════════════════════
-//  READ
+//  READ — List + Search
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
  * GET /farmers
- * List all farmers (paginated + filterable).
+ * List all farmers — paginated, filterable, full location details in response.
  *
- * Query params:
- *   page        {number}  default: 1
- *   per_page    {number}  default: 50, max: 200
- *   village_id  {number}  filter by village
- *   market_id   {number}  filter by market
- *   category    {string}  filter by category  e.g. "A", "A+", "B"
+ * ── Pagination ──────────────────────────────────────────────────────────────
+ *   page         {number}  default: 1
+ *   per_page     {number}  default: 50, max: 200
  *
- * Example: GET /api/v1/farmers?page=1&per_page=10&category=A
+ * ── Search ──────────────────────────────────────────────────────────────────
+ *   name         {string}  partial match  e.g. ?name=ramesh
+ *   mobile       {string}  exact match    e.g. ?mobile=9876543210
+ *
+ * ── Filters ─────────────────────────────────────────────────────────────────
+ *   category     {string}  "A" | "A+" | "A++" | "B"
+ *   market_id    {number}  exact
+ *   village_id   {number}  exact
+ *   state_id     {number}  all farmers in a state
+ *   zone_id      {number}  all farmers in a zone
+ *   region_id    {number}  all farmers in a region
+ *   territory_id {number}  all farmers in a territory
+ *
+ * ── Response fields ─────────────────────────────────────────────────────────
+ *   id, farmer_name, mobile, category,
+ *   market_id, village_id,
+ *   market_name, village_name, territory_name,
+ *   region_name, state_name, zone_name,
+ *   created_at, updated_at
+ *
+ * Examples:
+ *   GET /api/v1/farmers
+ *   GET /api/v1/farmers?page=2&per_page=100
+ *   GET /api/v1/farmers?name=ramesh
+ *   GET /api/v1/farmers?mobile=9876543210
+ *   GET /api/v1/farmers?category=A&state_id=5
+ *   GET /api/v1/farmers?territory_id=12&page=1&per_page=50
+ *   GET /api/v1/farmers?zone_id=1&category=A+
  */
 router.get('/', (req, res, next) => ctrl.list(req, res, next));
 
 /**
  * GET /farmers/:id
- * Get a single farmer by id (the auto-increment id column).
+ * Get a single farmer by id — includes full location details.
  *
  * Example: GET /api/v1/farmers/9
  */
@@ -42,12 +66,27 @@ router.get('/:id', (req, res, next) => ctrl.getOne(req, res, next));
  *   name        {string}  required
  *   mobile      {string}  optional
  *   category    {string}  optional  "A" | "A+" | "A++" | "B"
- *   market_id   {number}  optional
- *   village_id  {number}  optional
+ *   market_id   {number}  optional  must exist in farm_markets
+ *   village_id  {number}  optional  must exist in farm_villages
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "id": 1262539,
+ *     "created_at": "2026-04-14T...",
+ *     "updated_at": "2026-04-14T...",
+ *     "name": "Ramesh Patil",
+ *     "mobile": "9876543210",
+ *     "category": "A",
+ *     "market_id": 4361,
+ *     "village_id": null
+ *   }
+ * }
  *
  * Example:
  *   POST /api/v1/farmers
- *   { "name": "Ramesh Patil", "mobile": "9876543210", "market_id": 568, "category": "A" }
+ *   { "name": "Ramesh Patil", "mobile": "9876543210", "market_id": 4361, "category": "A" }
  */
 router.post('/', (req, res, next) => ctrl.create(req, res, next));
 
@@ -57,11 +96,11 @@ router.post('/', (req, res, next) => ctrl.create(req, res, next));
 
 /**
  * PATCH /farmers/:id
- * Partially update a farmer — only send the fields you want to change.
- * Updatable: name, mobile, category, market_id, village_id
+ * Partially update a farmer — only send fields you want to change.
+ * Updatable fields: name, mobile, category, market_id, village_id
  *
  * Example:
- *   PATCH /api/v1/farmers/9
+ *   PATCH /api/v1/farmers/1262539
  *   { "mobile": "9999999999", "category": "A+" }
  */
 router.patch('/:id', (req, res, next) => ctrl.update(req, res, next));
@@ -74,7 +113,7 @@ router.patch('/:id', (req, res, next) => ctrl.update(req, res, next));
  * DELETE /farmers/:id
  * Permanently delete a farmer record.
  *
- * Example: DELETE /api/v1/farmers/9
+ * Example: DELETE /api/v1/farmers/1262539
  */
 router.delete('/:id', (req, res, next) => ctrl.remove(req, res, next));
 

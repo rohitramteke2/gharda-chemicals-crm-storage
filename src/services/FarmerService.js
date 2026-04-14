@@ -1,56 +1,123 @@
-import sql        from 'mssql';
-import SQLService  from './SQLService.js';
-import logger      from '../utils/logger.js';
+import sql       from 'mssql';
+import SQLService from './SQLService.js';
+import logger     from '../utils/logger.js';
 
 /**
  * FarmerService
  * ─────────────
- * Table   : dbo.farm_farmers
- * Columns : id, market_id, village_id, name, mobile, category, created_at, updated_at
+ * Table   : dbo.farm_farmers     (ff)
+ * JOINs   : farm_markets         (fm)
+ *           farm_villages        (fv)
+ *           farm_territories     (ft)
+ *           farm_regions         (fr)
+ *           farm_states          (fs)
+ *           farm_zones           (fz)
  */
 class FarmerService {
 
-    // ── LIST (paginated + optional filters) ──────────────────────────────
-    async list({ page = 1, per_page = 50, village_id, market_id, category } = {}) {
-        const pool    = await SQLService.getPool();
-        const request = pool.request();
+    // ─────────────────────────────────────────────────────────────────────
+    //  SHARED BASE SELECT — used by list + getById
+    // ─────────────────────────────────────────────────────────────────────
+    _baseSelect() {
+        return `
+            SELECT
+                ff.id,
+                ff.market_id,
+                ff.village_id,
+                ff.name          AS farmer_name,
+                ff.mobile,
+                ff.category,
+                ff.created_at,
+                ff.updated_at,
+                fm.name          AS market_name,
+                fv.name          AS village_name,
+                ft.name          AS territory_name,
+                fr.name          AS region_name,
+                fs.name          AS state_name,
+                fz.name          AS zone_name
+            FROM       dbo.farm_farmers     ff
+            LEFT JOIN  dbo.farm_markets     fm  ON fm.id = ff.market_id
+            LEFT JOIN  dbo.farm_villages    fv  ON fv.id = ff.village_id
+            LEFT JOIN  dbo.farm_territories ft  ON ft.id = fm.territory_id
+            LEFT JOIN  dbo.farm_regions     fr  ON fr.id = ft.region_id
+            LEFT JOIN  dbo.farm_states      fs  ON fs.id = fr.state_id
+            LEFT JOIN  dbo.farm_zones       fz  ON fz.id = fs.zone_id
+        `;
+    }
 
+    // ─────────────────────────────────────────────────────────────────────
+    //  SHARED JOIN clause — used in count query
+    // ─────────────────────────────────────────────────────────────────────
+    _baseJoins() {
+        return `
+            FROM       dbo.farm_farmers     ff
+            LEFT JOIN  dbo.farm_markets     fm  ON fm.id = ff.market_id
+            LEFT JOIN  dbo.farm_villages    fv  ON fv.id = ff.village_id
+            LEFT JOIN  dbo.farm_territories ft  ON ft.id = fm.territory_id
+            LEFT JOIN  dbo.farm_regions     fr  ON fr.id = ft.region_id
+            LEFT JOIN  dbo.farm_states      fs  ON fs.id = fr.state_id
+            LEFT JOIN  dbo.farm_zones       fz  ON fz.id = fs.zone_id
+        `;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  LIST  —  paginated + all filters + full location details
+    // ─────────────────────────────────────────────────────────────────────
+    /**
+     * Supported query params:
+     *   page, per_page                   pagination
+     *   name         string              partial match (LIKE)
+     *   mobile       string              exact match
+     *   category     string              exact  "A" | "A+" | "A++" | "B"
+     *   market_id    number              exact
+     *   village_id   number              exact
+     *   state_id     number              filter by state
+     *   zone_id      number              filter by zone
+     *   region_id    number              filter by region
+     *   territory_id number              filter by territory
+     */
+    async list({
+        page = 1,
+        per_page = 50,
+        name,
+        mobile,
+        category,
+        market_id,
+        village_id,
+        state_id,
+        zone_id,
+        region_id,
+        territory_id,
+    } = {}) {
+        const pool   = await SQLService.getPool();
         const limit  = Math.min(Number(per_page), 200);
         const offset = (Math.max(Number(page), 1) - 1) * limit;
 
-        const conditions = [];
+        const { conditions, bindings } = this._buildFilters({
+            name, mobile, category,
+            market_id, village_id,
+            state_id, zone_id, region_id, territory_id,
+        });
 
-        if (village_id) {
-            request.input('village_id', sql.Int,          Number(village_id));
-            conditions.push('[village_id] = @village_id');
-        }
-        if (market_id) {
-            request.input('market_id',  sql.SmallInt,     Number(market_id));
-            conditions.push('[market_id] = @market_id');
-        }
-        if (category) {
-            request.input('category',   sql.NVarChar(10), String(category));
-            conditions.push('[category] = @category');
-        }
+        const whereClause = conditions.length
+            ? `WHERE ${conditions.join(' AND ')}`
+            : '';
 
-        const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-
-        // Count query (same filters, no pagination)
+        // ── Count ────────────────────────────────────────────────────────
         const countReq = pool.request();
-        if (village_id) countReq.input('village_id', sql.Int,          Number(village_id));
-        if (market_id)  countReq.input('market_id',  sql.SmallInt,     Number(market_id));
-        if (category)   countReq.input('category',   sql.NVarChar(10), String(category));
-
+        this._bindParams(countReq, bindings);
         const countResult = await countReq.query(
-            `SELECT COUNT(*) AS total FROM dbo.farm_farmers ${whereClause}`
+            `SELECT COUNT(*) AS total ${this._baseJoins()} ${whereClause}`
         );
         const total = countResult.recordset[0].total;
 
-        const dataResult = await request.query(`
-            SELECT *
-            FROM   dbo.farm_farmers
+        // ── Data ─────────────────────────────────────────────────────────
+        const dataReq = pool.request();
+        this._bindParams(dataReq, bindings);
+        const dataResult = await dataReq.query(`
+            ${this._baseSelect()}
             ${whereClause}
-            ORDER  BY [id] ASC
+            ORDER BY ff.id ASC
             OFFSET ${offset} ROWS
             FETCH NEXT ${limit} ROWS ONLY
         `);
@@ -68,58 +135,62 @@ class FarmerService {
         };
     }
 
-    // ── GET ONE ───────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    //  GET ONE  —  full details with all JOINs
+    // ─────────────────────────────────────────────────────────────────────
     async getById(id) {
         const pool    = await SQLService.getPool();
         const request = pool.request();
         request.input('id', sql.Int, Number(id));
 
-        const result = await request.query(
-            `SELECT * FROM dbo.farm_farmers WHERE [id] = @id`
-        );
+        const result = await request.query(`
+            ${this._baseSelect()}
+            WHERE ff.id = @id
+        `);
 
         logger.debug('FarmerService: getById', { id });
         return result.recordset[0] || null;
     }
 
-    // ── CREATE ────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    //  CREATE  —  returns only id + created_at + updated_at
+    //  (caller already knows the body fields they sent)
+    // ─────────────────────────────────────────────────────────────────────
     async create(data) {
         const pool    = await SQLService.getPool();
         const request = pool.request();
 
-        request.input('market_id',  sql.SmallInt,     data.market_id  ? Number(data.market_id)  : null);
-        request.input('village_id', sql.Int,          data.village_id ? Number(data.village_id) : null);
-        request.input('name',       sql.NVarChar(255), String(data.name).slice(0, 255));
-        request.input('mobile',     sql.NVarChar(100), data.mobile ? String(data.mobile).slice(0, 100) : null);
-        request.input('category',   sql.NVarChar(10),  data.category || null);
+        request.input('market_id',  sql.SmallInt,      data.market_id  ? Number(data.market_id)            : null);
+        request.input('village_id', sql.Int,           data.village_id ? Number(data.village_id)           : null);
+        request.input('name',       sql.NVarChar(255), String(data.name).trim().slice(0, 255));
+        request.input('mobile',     sql.NVarChar(100), data.mobile     ? String(data.mobile).slice(0, 100) : null);
+        request.input('category',   sql.NVarChar(10),  data.category   ? String(data.category).slice(0, 10): null);
 
         const result = await request.query(`
-            INSERT INTO dbo.farm_farmers
-                (market_id, village_id, name, mobile, category)
-            OUTPUT INSERTED.*
-            VALUES
-                (@market_id, @village_id, @name, @mobile, @category)
+            INSERT INTO dbo.farm_farmers (market_id, village_id, name, mobile, category)
+            OUTPUT INSERTED.id, INSERTED.created_at, INSERTED.updated_at
+            VALUES (@market_id, @village_id, @name, @mobile, @category)
         `);
 
-        const created = result.recordset[0];
-        logger.info('FarmerService: farmer created', { id: created?.id });
-        return created;
+        const inserted = result.recordset[0];
+        logger.info('FarmerService: farmer created', { id: inserted?.id });
+        return inserted;
     }
 
-    // ── UPDATE ────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    //  UPDATE
+    // ─────────────────────────────────────────────────────────────────────
     async update(id, data) {
         const pool    = await SQLService.getPool();
         const request = pool.request();
 
-        // Only these columns are updatable
         const allowed = ['name', 'mobile', 'category', 'market_id', 'village_id'];
         const fields  = Object.keys(data).filter(k => allowed.includes(k));
-
         if (!fields.length) throw new Error('No valid fields provided for update.');
 
         const setList = fields.map((col, i) => {
             switch (col) {
-                case 'name':       request.input(`u${i}`, sql.NVarChar(255), String(data[col]).slice(0, 255)); break;
+                case 'name':       request.input(`u${i}`, sql.NVarChar(255), String(data[col]).trim().slice(0, 255)); break;
                 case 'mobile':     request.input(`u${i}`, sql.NVarChar(100), data[col] ? String(data[col]).slice(0, 100) : null); break;
                 case 'category':   request.input(`u${i}`, sql.NVarChar(10),  data[col]); break;
                 case 'market_id':  request.input(`u${i}`, sql.SmallInt,      Number(data[col])); break;
@@ -142,7 +213,9 @@ class FarmerService {
         return updated;
     }
 
-    // ── DELETE ────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    //  DELETE
+    // ─────────────────────────────────────────────────────────────────────
     async remove(id) {
         const pool    = await SQLService.getPool();
         const request = pool.request();
@@ -157,6 +230,60 @@ class FarmerService {
         const deleted = result.recordset[0] || null;
         logger.info('FarmerService: farmer deleted', { id, found: !!deleted });
         return deleted;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  PRIVATE HELPERS
+    // ─────────────────────────────────────────────────────────────────────
+
+    _buildFilters({ name, mobile, category, market_id, village_id, state_id, zone_id, region_id, territory_id }) {
+        const conditions = [];
+        const bindings   = [];
+
+        if (name) {
+            conditions.push(`ff.name LIKE @name`);
+            bindings.push({ key: 'name', type: sql.NVarChar(255), value: `%${name.trim()}%` });
+        }
+        if (mobile) {
+            conditions.push(`ff.mobile = @mobile`);
+            bindings.push({ key: 'mobile', type: sql.NVarChar(100), value: String(mobile).trim() });
+        }
+        if (category) {
+            conditions.push(`ff.category = @category`);
+            bindings.push({ key: 'category', type: sql.NVarChar(10), value: String(category) });
+        }
+        if (market_id) {
+            conditions.push(`ff.market_id = @market_id`);
+            bindings.push({ key: 'market_id', type: sql.SmallInt, value: Number(market_id) });
+        }
+        if (village_id) {
+            conditions.push(`ff.village_id = @village_id`);
+            bindings.push({ key: 'village_id', type: sql.Int, value: Number(village_id) });
+        }
+        if (state_id) {
+            conditions.push(`fs.id = @state_id`);
+            bindings.push({ key: 'state_id', type: sql.Int, value: Number(state_id) });
+        }
+        if (zone_id) {
+            conditions.push(`fz.id = @zone_id`);
+            bindings.push({ key: 'zone_id', type: sql.Int, value: Number(zone_id) });
+        }
+        if (region_id) {
+            conditions.push(`fr.id = @region_id`);
+            bindings.push({ key: 'region_id', type: sql.Int, value: Number(region_id) });
+        }
+        if (territory_id) {
+            conditions.push(`ft.id = @territory_id`);
+            bindings.push({ key: 'territory_id', type: sql.Int, value: Number(territory_id) });
+        }
+
+        return { conditions, bindings };
+    }
+
+    _bindParams(request, bindings) {
+        for (const { key, type, value } of bindings) {
+            request.input(key, type, value);
+        }
     }
 }
 
