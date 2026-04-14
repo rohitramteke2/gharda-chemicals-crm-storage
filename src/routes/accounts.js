@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import multer from 'multer';
 import ctrl from '../controllers/AccountController.js';
+import accountService from '../services/AccountFileUploadService.js';
 import TokenService from '../services/TokenService.js';
-import { env }      from '../config/env.js';
+import { env } from '../config/env.js';
 
 const router = Router();
 
@@ -60,7 +61,7 @@ router.post('/:recordId/generate-link', async (req, res, next) => {
         const { recordId } = req.params;
 
         // Fetch account to get SAP_ID (needed for folder URL)
-        const record = await ctrl.fetchAccountById(recordId);
+        const record = await accountService.fetchAccountById(recordId);
 
         if (!record) {
             return res.status(404).json({
