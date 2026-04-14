@@ -24,24 +24,31 @@ class FarmerService {
                 ff.id,
                 ff.market_id,
                 ff.village_id,
-                ff.name          AS farmer_name,
+                ff.name           AS farmer_name,
                 ff.mobile,
                 ff.category,
                 ff.created_at,
                 ff.updated_at,
-                fm.name          AS market_name,
-                fv.name          AS village_name,
-                ft.name          AS territory_name,
-                fr.name          AS region_name,
-                fs.name          AS state_name,
-                fz.name          AS zone_name
-            FROM       dbo.farm_farmers     ff
-            LEFT JOIN  dbo.farm_markets     fm  ON fm.id = ff.market_id
-            LEFT JOIN  dbo.farm_villages    fv  ON fv.id = ff.village_id
-            LEFT JOIN  dbo.farm_territories ft  ON ft.id = fm.territory_id
-            LEFT JOIN  dbo.farm_regions     fr  ON fr.id = ft.region_id
-            LEFT JOIN  dbo.farm_states      fs  ON fs.id = fr.state_id
-            LEFT JOIN  dbo.farm_zones       fz  ON fz.id = fs.zone_id
+                fm.name           AS market_name,
+                fv.name           AS village_name,
+                -- territory comes from market (primary) or village (fallback)
+                COALESCE(ft.name, ftv.name)   AS territory_name,
+                COALESCE(fr.name, frv.name)   AS region_name,
+                COALESCE(fs.name, fsv.name)   AS state_name,
+                COALESCE(fz.name, fzv.name)   AS zone_name
+            FROM       dbo.farm_farmers      ff
+            -- market side
+            LEFT JOIN  dbo.farm_markets      fm   ON fm.id  = ff.market_id
+            LEFT JOIN  dbo.farm_territories  ft   ON ft.id  = fm.territory_id
+            LEFT JOIN  dbo.farm_regions      fr   ON fr.id  = ft.region_id
+            LEFT JOIN  dbo.farm_states       fs   ON fs.id  = fr.state_id
+            LEFT JOIN  dbo.farm_zones        fz   ON fz.id  = fs.zone_id
+            -- village side (farm_villages also has territory_id directly)
+            LEFT JOIN  dbo.farm_villages     fv   ON fv.id  = ff.village_id
+            LEFT JOIN  dbo.farm_territories  ftv  ON ftv.id = fv.territory_id
+            LEFT JOIN  dbo.farm_regions      frv  ON frv.id = ftv.region_id
+            LEFT JOIN  dbo.farm_states       fsv  ON fsv.id = frv.state_id
+            LEFT JOIN  dbo.farm_zones        fzv  ON fzv.id = fsv.zone_id
         `;
     }
 
@@ -50,13 +57,17 @@ class FarmerService {
     // ─────────────────────────────────────────────────────────────────────
     _baseJoins() {
         return `
-            FROM       dbo.farm_farmers     ff
-            LEFT JOIN  dbo.farm_markets     fm  ON fm.id = ff.market_id
-            LEFT JOIN  dbo.farm_villages    fv  ON fv.id = ff.village_id
-            LEFT JOIN  dbo.farm_territories ft  ON ft.id = fm.territory_id
-            LEFT JOIN  dbo.farm_regions     fr  ON fr.id = ft.region_id
-            LEFT JOIN  dbo.farm_states      fs  ON fs.id = fr.state_id
-            LEFT JOIN  dbo.farm_zones       fz  ON fz.id = fs.zone_id
+            FROM       dbo.farm_farmers      ff
+            LEFT JOIN  dbo.farm_markets      fm   ON fm.id  = ff.market_id
+            LEFT JOIN  dbo.farm_territories  ft   ON ft.id  = fm.territory_id
+            LEFT JOIN  dbo.farm_regions      fr   ON fr.id  = ft.region_id
+            LEFT JOIN  dbo.farm_states       fs   ON fs.id  = fr.state_id
+            LEFT JOIN  dbo.farm_zones        fz   ON fz.id  = fs.zone_id
+            LEFT JOIN  dbo.farm_villages     fv   ON fv.id  = ff.village_id
+            LEFT JOIN  dbo.farm_territories  ftv  ON ftv.id = fv.territory_id
+            LEFT JOIN  dbo.farm_regions      frv  ON frv.id = ftv.region_id
+            LEFT JOIN  dbo.farm_states       fsv  ON fsv.id = frv.state_id
+            LEFT JOIN  dbo.farm_zones        fzv  ON fzv.id = fsv.zone_id
         `;
     }
 
@@ -261,19 +272,19 @@ class FarmerService {
             bindings.push({ key: 'village_id', type: sql.Int, value: Number(village_id) });
         }
         if (state_id) {
-            conditions.push(`fs.id = @state_id`);
+            conditions.push(`(fs.id = @state_id OR fsv.id = @state_id)`);
             bindings.push({ key: 'state_id', type: sql.Int, value: Number(state_id) });
         }
         if (zone_id) {
-            conditions.push(`fz.id = @zone_id`);
+            conditions.push(`(fz.id = @zone_id OR fzv.id = @zone_id)`);
             bindings.push({ key: 'zone_id', type: sql.Int, value: Number(zone_id) });
         }
         if (region_id) {
-            conditions.push(`fr.id = @region_id`);
+            conditions.push(`(fr.id = @region_id OR frv.id = @region_id)`);
             bindings.push({ key: 'region_id', type: sql.Int, value: Number(region_id) });
         }
         if (territory_id) {
-            conditions.push(`ft.id = @territory_id`);
+            conditions.push(`(ft.id = @territory_id OR ftv.id = @territory_id)`);
             bindings.push({ key: 'territory_id', type: sql.Int, value: Number(territory_id) });
         }
 
