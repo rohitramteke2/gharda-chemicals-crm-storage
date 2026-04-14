@@ -1355,3 +1355,612 @@ export function renderPaymentInvalid() {
 </body>
 </html>`;
 }
+
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PAGE: Token-gated Docs Viewer — Modern sidebar + docs layout
+//  ADD THIS FUNCTION to src/views/pages.js
+//
+//  Usage in pages.js route:
+//    res.send(renderDocsViewer(recordId, folderName, data));
+//
+//  Export:
+//    export function renderDocsViewer(recordId, folderName, data) { ... }
+// ════════════════════════════════════════════════════════════════════════════
+
+export function renderDocsViewer(recordId, folderName, data) {
+
+    // ── No files found ────────────────────────────────────────────────────
+    if (!data || data.fields.length === 0) {
+        return renderDocsEmpty(folderName);
+    }
+
+    // ── Build sidebar categories + file list ──────────────────────────────
+    // Only include fields that actually have files
+    const fieldsWithFiles = data.fields.filter(f => f.files.length > 0);
+    const totalFiles      = data.totalFiles;
+    const totalSize       = formatSize(data.totalSize);
+
+    // Pre-build each section's HTML
+    const sections = fieldsWithFiles.map((field, idx) => {
+        const sectionId  = `section-${idx}`;
+        const fileRows   = field.files.map(file => {
+            const iconClass = getFileIconClass(file.name);
+            const ext       = getFileExt(file.name).slice(0, 4);
+            const isImage   = ['jpg','jpeg','png','gif','bmp','webp']
+                .includes((file.name || '').split('.').pop().toLowerCase());
+
+            return `
+            <div class="doc-item" data-section="${sectionId}">
+                <div class="doc-icon ${iconClass}">${escapeHtml(ext)}</div>
+                <div class="doc-info">
+                    <div class="doc-name">${escapeHtml(file.name)}</div>
+                    <div class="doc-meta">${formatSize(file.size)}</div>
+                </div>
+                <div class="doc-actions">
+                    ${isImage ? `
+                    <a href="${escapeHtml(file.url)}" target="_blank" class="action-btn preview-btn" title="Preview">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                        View
+                    </a>` : ''}
+                    <a href="${escapeHtml(file.url)}" download class="action-btn download-btn" title="Download">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        Download
+                    </a>
+                </div>
+            </div>`;
+        }).join('');
+
+        return {
+            id:        sectionId,
+            label:     field.fieldLabel,
+            apiName:   field.fieldApiName,
+            type:      field.fieldType,
+            count:     field.files.length,
+            fileRows,
+        };
+    });
+
+    // ── Sidebar items ──────────────────────────────────────────────────────
+    const sidebarItems = [
+        `<div class="sidebar-item active" data-target="all" onclick="filterSection('all', this)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+            </svg>
+            <span>All Documents</span>
+            <span class="sidebar-count">${totalFiles}</span>
+        </div>`,
+        ...sections.map(s => `
+        <div class="sidebar-item" data-target="${s.id}" onclick="filterSection('${s.id}', this)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                ${s.type === 'image_upload'
+                    ? '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'
+                    : '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>'}
+            </svg>
+            <span>${escapeHtml(s.label)}</span>
+            <span class="sidebar-count">${s.count}</span>
+        </div>`),
+    ].join('');
+
+    // ── Doc sections HTML ──────────────────────────────────────────────────
+    const docSections = sections.map(s => `
+        <div class="doc-section" id="${s.id}">
+            <div class="section-header">
+                <div>
+                    <div class="section-title">${escapeHtml(s.label)}</div>
+                    <div class="section-meta mono">${escapeHtml(s.apiName)}</div>
+                </div>
+                <span class="badge ${s.type === 'image_upload' ? 'badge-warn' : 'badge-ok'}">
+                    ${s.type === 'image_upload' ? 'Image' : 'File Upload'}
+                </span>
+            </div>
+            ${s.fileRows}
+        </div>`
+    ).join('');
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documents — Gharda CRM</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg:         #0f1117;
+            --surface:    #1a1d27;
+            --surface-2:  #242836;
+            --border:     #2e3346;
+            --text:       #e4e6ef;
+            --text-muted: #8b8fa3;
+            --accent:     #4f8fff;
+            --accent-glow:rgba(79,143,255,0.15);
+            --green:      #34d399;
+            --orange:     #fbbf24;
+            --radius:     10px;
+            --font:       'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            --mono:       'Cascadia Code','Fira Code',Consolas,monospace;
+            --sidebar-w:  260px;
+        }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── Top bar ───────────────────────────────────────────── */
+        .topbar {
+            height: 56px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            gap: 16px;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+        .topbar-logo {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 15px; font-weight: 700; color: var(--text);
+        }
+        .topbar-logo-icon {
+            width: 30px; height: 30px;
+            background: var(--accent); border-radius: 7px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; font-weight: 800; color: white;
+        }
+        .topbar-divider { width: 1px; height: 24px; background: var(--border); }
+        .topbar-title {
+            font-size: 14px; color: var(--text-muted);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .topbar-title strong { color: var(--text); }
+        .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+        .topbar-stats {
+            font-size: 12px; color: var(--text-muted);
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 12px;
+            display: flex; gap: 16px;
+        }
+        .topbar-stats span { color: var(--accent); font-weight: 600; }
+        .expiry-badge {
+            font-size: 12px;
+            background: rgba(251,191,36,0.1);
+            border: 1px solid rgba(251,191,36,0.3);
+            color: var(--orange);
+            border-radius: 6px;
+            padding: 4px 10px;
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        /* ── Main layout ───────────────────────────────────────── */
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ───────────────────────────────────────────── */
+        .sidebar {
+            width: var(--sidebar-w);
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+        .sidebar-header {
+            padding: 16px 16px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+        .sidebar-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-muted);
+            border-left: 3px solid transparent;
+            transition: all 0.15s;
+            user-select: none;
+        }
+        .sidebar-item:hover {
+            background: var(--surface-2);
+            color: var(--text);
+        }
+        .sidebar-item.active {
+            background: var(--accent-glow);
+            color: var(--accent);
+            border-left-color: var(--accent);
+        }
+        .sidebar-item svg { flex-shrink: 0; opacity: 0.7; }
+        .sidebar-item span:nth-child(2) { flex: 1; }
+        .sidebar-count {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1px 7px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+        .sidebar-item.active .sidebar-count {
+            background: rgba(79,143,255,0.2);
+            border-color: rgba(79,143,255,0.3);
+            color: var(--accent);
+        }
+        .sidebar-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 8px 16px;
+        }
+
+        /* ── Docs area ─────────────────────────────────────────── */
+        .docs-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* ── Search bar ────────────────────────────────────────── */
+        .search-wrap {
+            position: relative;
+            margin-bottom: 4px;
+        }
+        .search-wrap svg {
+            position: absolute;
+            left: 12px; top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+        .search-input {
+            width: 100%;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px 10px 38px;
+            font-size: 14px;
+            color: var(--text);
+            font-family: var(--font);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-input:focus { border-color: var(--accent); }
+        .search-input::placeholder { color: var(--text-muted); }
+
+        /* ── Doc section ───────────────────────────────────────── */
+        .doc-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+        .doc-section:hover { border-color: #3d4460; }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface-2);
+        }
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 2px;
+        }
+        .section-meta {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* ── Doc item ──────────────────────────────────────────── */
+        .doc-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.15s;
+        }
+        .doc-item:last-child { border-bottom: none; }
+        .doc-item:hover { background: var(--surface-2); }
+
+        .doc-icon {
+            width: 38px; height: 38px;
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; font-weight: 700;
+            color: white; flex-shrink: 0;
+        }
+        .fi-pdf   { background: #e74c3c; }
+        .fi-img   { background: #9b59b6; }
+        .fi-doc   { background: #3498db; }
+        .fi-xls   { background: #27ae60; }
+        .fi-zip   { background: #f39c12; }
+        .fi-txt   { background: #95a5a6; }
+        .fi-other { background: #7f8c8d; }
+
+        .doc-info { flex: 1; min-width: 0; }
+        .doc-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .doc-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+        .doc-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .preview-btn {
+            background: rgba(79,143,255,0.1);
+            border: 1px solid rgba(79,143,255,0.25);
+            color: var(--accent);
+        }
+        .preview-btn:hover {
+            background: rgba(79,143,255,0.2);
+            border-color: var(--accent);
+        }
+        .download-btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+        .download-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* ── Badge ─────────────────────────────────────────────── */
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge-ok   { background: rgba(52,211,153,0.1); color: #34d399; }
+        .badge-warn { background: rgba(251,191,36,0.1);  color: #fbbf24; }
+
+        /* ── Empty state ───────────────────────────────────────── */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 60px;
+        }
+        .empty-icon { font-size: 48px; opacity: 0.3; margin-bottom: 16px; }
+        .empty-title { font-size: 18px; color: var(--text); margin-bottom: 8px; }
+
+        /* ── Scrollbar ─────────────────────────────────────────── */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4a4f6a; }
+
+        /* ── Responsive ────────────────────────────────────────── */
+        @media (max-width: 680px) {
+            :root { --sidebar-w: 200px; }
+            .topbar-stats { display: none; }
+            .doc-actions { flex-direction: column; gap: 4px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Top bar -->
+    <div class="topbar">
+        <div class="topbar-logo">
+            <div class="topbar-logo-icon">G</div>
+            Gharda CRM
+        </div>
+        <div class="topbar-divider"></div>
+        <div class="topbar-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            My Documents
+        </div>
+        <div class="topbar-right">
+            <div class="topbar-stats">
+                <span>${totalFiles}</span> files &nbsp;·&nbsp; <span>${totalSize}</span>
+            </div>
+            <div class="expiry-badge">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+                Link expires in 15 min
+            </div>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">Documents</div>
+            ${sidebarItems}
+            <div class="sidebar-divider"></div>
+            <div class="sidebar-header" style="margin-top:4px;">Account</div>
+            <div class="sidebar-item" style="cursor:default; opacity:0.6;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+                <span style="font-family:var(--mono);font-size:11px;color:var(--text-muted);">
+                    ${escapeHtml(folderName)}
+                </span>
+            </div>
+        </div>
+
+        <!-- Docs area -->
+        <div class="docs-area" id="docsArea">
+
+            <!-- Search -->
+            <div class="search-wrap">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input
+                    class="search-input"
+                    id="searchInput"
+                    type="text"
+                    placeholder="Search documents by name…"
+                    oninput="searchDocs(this.value)"
+                    autocomplete="off"
+                />
+            </div>
+
+            <!-- No results -->
+            <div id="noResults" class="empty-state" style="display:none;">
+                <div class="empty-icon">🔍</div>
+                <div class="empty-title">No documents found</div>
+                <p style="font-size:13px;">Try a different search term.</p>
+            </div>
+
+            <!-- Document sections -->
+            ${docSections}
+
+        </div>
+    </div>
+
+    <script>
+        // ── Filter by sidebar category ────────────────────────────────────
+        function filterSection(target, el) {
+            // Update active state
+            document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+            el.classList.add('active');
+
+            // Clear search
+            document.getElementById('searchInput').value = '';
+
+            const sections = document.querySelectorAll('.doc-section');
+            sections.forEach(s => {
+                s.style.display = (target === 'all' || s.id === target) ? '' : 'none';
+            });
+
+            document.getElementById('noResults').style.display = 'none';
+        }
+
+        // ── Search docs ───────────────────────────────────────────────────
+        function searchDocs(query) {
+            const q = query.toLowerCase().trim();
+
+            // Reset sidebar selection to "All" when searching
+            if (q) {
+                document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+                document.querySelector('[data-target="all"]').classList.add('active');
+            }
+
+            let anyVisible = false;
+
+            document.querySelectorAll('.doc-section').forEach(section => {
+                let sectionHasMatch = false;
+
+                section.querySelectorAll('.doc-item').forEach(item => {
+                    const name = item.querySelector('.doc-name').textContent.toLowerCase();
+                    const show = !q || name.includes(q);
+                    item.style.display = show ? '' : 'none';
+                    if (show) sectionHasMatch = true;
+                });
+
+                section.style.display = sectionHasMatch ? '' : 'none';
+                if (sectionHasMatch) anyVisible = true;
+            });
+
+            document.getElementById('noResults').style.display = anyVisible || !q ? 'none' : 'flex';
+        }
+    </script>
+
+</body>
+</html>`;
+}
+
+
+// ── Empty state when no files exist ──────────────────────────────────────────
+function renderDocsEmpty(folderName) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>No Documents — Gharda CRM</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0f1117; color: #e4e6ef;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+        }
+        .wrap {
+            text-align: center; max-width: 420px; padding: 48px 32px;
+            background: #1a1d27; border-radius: 16px;
+            border: 1px solid #2e3346;
+        }
+        .icon { font-size: 48px; opacity: 0.3; margin-bottom: 20px; }
+        h1 { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+        p  { font-size: 13px; color: #8b8fa3; line-height: 1.6; }
+        .footer { margin-top: 32px; font-size: 11px; color: #4a4e63; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="icon">📂</div>
+        <h1>No Documents Found</h1>
+        <p>No files have been synced yet for this account.<br>Please contact your administrator.</p>
+        <div class="footer">Gharda Chemicals — Zoho CRM Integration</div>
+    </div>
+</body>
+</html>`;
+}

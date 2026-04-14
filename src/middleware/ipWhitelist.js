@@ -11,7 +11,7 @@
 import logger from '../utils/logger.js';
 
 // ── Load allowed IPs ────────────────────────────────────────────────────────
-const DEFAULT_IPS = ['27.107.69.106', '152.58.16.163.252'];
+const DEFAULT_IPS = ['27.107.69.106', '152.58.16.252'];
 
 function loadAllowedIps() {
     const raw = process.env.ALLOWED_IPS || '';

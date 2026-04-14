@@ -12,6 +12,7 @@ import {
     renderError,
     renderPaymentSuccess,
     renderPaymentInvalid,
+    renderDocsViewer,
 } from '../views/pages.js';
 
 import { tokenGate } from '../middleware/tokenGate.js';
@@ -223,7 +224,7 @@ router.get('/docs/:encryptedId', tokenGate, async (req, res) => {
         const folderName = record?.SAP_ID || `crm-${recordId}`;
         const data       = await accountService.listDownloadedFiles(folderName);
  
-        res.send(renderAccountFiles(folderName, data));
+        res.send(renderDocsViewer(recordId, folderName, data));
     } catch (err) {
         logger.error('Pages: token-gated docs error', { message: err.message });
         res.status(500).send(renderError(500, 'Server Error',
