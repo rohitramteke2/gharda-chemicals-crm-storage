@@ -87,7 +87,7 @@ router.post('/:recordId/generate-link', async (req, res, next) => {
             folderUrl,              // ← direct storage folder URL (save to CRM field)
             sapId,
             recordId,
-            expiresInMinutes: 15,   // url expires, folderUrl is permanent
+            expiresInMinutes: env.PAGE_TTL,   // url expires, folderUrl is permanent
         });
 
     } catch (err) { next(err); }

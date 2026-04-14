@@ -41,7 +41,7 @@ export const env = {
     // Cluster
     CLUSTER_WORKERS: get('CLUSTER_WORKERS', ''),
     
-    
+    PAGE_TTL: parseInt(get('PAGE_TTL', 15), 10),
 
     // SQL Server
     SQL_SERVER : get('SQL_SERVER'),
