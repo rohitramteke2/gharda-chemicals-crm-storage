@@ -27,10 +27,15 @@ const ALLOWED = new Set(loadAllowedIps());
 function getClientIp(req) {
     const forwarded = req.headers['x-forwarded-for'];
     if (forwarded) {
-        return forwarded.split(',')[0].trim();
+        let ip = forwarded.split(',')[0].trim();
+        // Strip port if present e.g. "27.107.69.106:63635" → "27.107.69.106"
+        if (ip.includes(':') && !ip.startsWith('[')) ip = ip.split(':')[0];
+        return ip;
     }
     let ip = req.ip || req.connection?.remoteAddress || '';
     if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+    // Strip port if present
+    if (ip.includes(':') && !ip.startsWith('[')) ip = ip.split(':')[0];
     return ip;
 }
 
