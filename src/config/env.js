@@ -40,6 +40,17 @@ export const env = {
     // Cluster
     CLUSTER_WORKERS: get('CLUSTER_WORKERS', ''),
 
+    // SQL Server
+    SQL_SERVER : get('SQL_SERVER'),
+    SQL_DATABASE : get('SQL_DATABASE'),
+    SQL_USER : get('SQL_USER'),
+    SQL_PASSWORD : get('SQL_PASSWORD'),
+    SQL_PORT : parseInt(get('SQL_PORT', '1433'), 10),
+    SQL_ENCRYPT : get('SQL_ENCRYPT', 'false') == true,
+    SQL_TRUST_CECRT : get('SQL_TRUST_CECRT', 'true') === true,
+    SQL_CONNECTION_TIMEOUT : parseInt(get('SQL_CONNECTION_TIMEOUT', '30000'), 10),
+    SQL_REQUEST_TIMEOUT : parseInt(get('SQL_REQUEST_TIMEOUT', '30000'), 10),
+
     // Shortcuts
     isDev:  () => env.NODE_ENV === 'development',
     isProd: () => env.NODE_ENV === 'production',
