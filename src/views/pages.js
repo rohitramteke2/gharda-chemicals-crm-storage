@@ -1369,597 +1369,415 @@ export function renderPaymentInvalid() {
 //    export function renderDocsViewer(recordId, folderName, data) { ... }
 // ════════════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════════════
+//  REPLACE the existing renderDocsViewer and renderDocsEmpty functions
+//  in src/views/pages.js with these two functions.
+// ════════════════════════════════════════════════════════════════════════════
+
 export function renderDocsViewer(recordId, folderName, data) {
 
-    // ── No files found ────────────────────────────────────────────────────
-    if (!data || data.fields.length === 0) {
+    if (!data || data.totalFiles === 0) {
         return renderDocsEmpty(folderName);
     }
 
-    // ── Build sidebar categories + file list ──────────────────────────────
-    // Only include fields that actually have files
-    const fieldsWithFiles = data.fields.filter(f => f.files.length > 0);
-    const totalFiles      = data.totalFiles;
-    const totalSize       = formatSize(data.totalSize);
+    // ── Flatten all files ─────────────────────────────────────────────────
+    const allFiles = [];
+    if (data.fields && data.fields.length > 0) {
+        for (const field of data.fields) {
+            for (const file of field.files) {
+                allFiles.push({
+                    ...file,
+                    fieldLabel:   field.fieldLabel,
+                    fieldApiName: field.fieldApiName,
+                    fieldType:    field.fieldType,
+                });
+            }
+        }
+    }
 
-    // Pre-build each section's HTML
-    const sections = fieldsWithFiles.map((field, idx) => {
-        const sectionId  = `section-${idx}`;
-        const fileRows   = field.files.map(file => {
-            const iconClass = getFileIconClass(file.name);
-            const ext       = getFileExt(file.name).slice(0, 4);
-            const isImage   = ['jpg','jpeg','png','gif','bmp','webp']
-                .includes((file.name || '').split('.').pop().toLowerCase());
+    const totalFiles = allFiles.length;
+    const totalSize  = allFiles.reduce((s, f) => s + (f.size || 0), 0);
 
-            return `
-            <div class="doc-item" data-section="${sectionId}">
-                <div class="doc-icon ${iconClass}">${escapeHtml(ext)}</div>
-                <div class="doc-info">
-                    <div class="doc-name">${escapeHtml(file.name)}</div>
-                    <div class="doc-meta">${formatSize(file.size)}</div>
-                </div>
-                <div class="doc-actions">
-                    ${isImage ? `
-                    <a href="${escapeHtml(file.url)}" target="_blank" class="action-btn preview-btn" title="Preview">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                        </svg>
-                        View
-                    </a>` : ''}
-                    <a href="${escapeHtml(file.url)}" download class="action-btn download-btn" title="Download">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                            <polyline points="7 10 12 15 17 10"/>
-                            <line x1="12" y1="15" x2="12" y2="3"/>
-                        </svg>
-                        Download
-                    </a>
-                </div>
-            </div>`;
-        }).join('');
+    // ── Sidebar categories ────────────────────────────────────────────────
+    const categories = {};
+    for (const f of allFiles) {
+        const cat = f.fieldLabel || 'Other';
+        if (!categories[cat]) categories[cat] = [];
+        categories[cat].push(f);
+    }
 
-        return {
-            id:        sectionId,
-            label:     field.fieldLabel,
-            apiName:   field.fieldApiName,
-            type:      field.fieldType,
-            count:     field.files.length,
-            fileRows,
-        };
-    });
+    // ── Helpers ───────────────────────────────────────────────────────────
+    function fileType(name) {
+        const ext = (name || '').split('.').pop().toLowerCase();
+        if (ext === 'pdf')                                         return { label: 'PDF',   color: '#C62828', bg: '#FFEBEE' };
+        if (['jpg','jpeg','png','gif','bmp','webp'].includes(ext)) return { label: 'IMG',   color: '#6A1B9A', bg: '#F3E5F5' };
+        if (['doc','docx'].includes(ext))                          return { label: 'DOC',   color: '#1565C0', bg: '#E3F2FD' };
+        if (['xls','xlsx','csv'].includes(ext))                    return { label: 'XLS',   color: '#2E7D32', bg: '#E8F5E9' };
+        if (['zip','rar','7z'].includes(ext))                      return { label: 'ZIP',   color: '#E65100', bg: '#FFF3E0' };
+        return                                                            { label: 'FILE',  color: '#37474F', bg: '#ECEFF1' };
+    }
 
-    // ── Sidebar items ──────────────────────────────────────────────────────
+    function fmtSize(bytes) {
+        if (!bytes) return '—';
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function fmtDate(d) {
+        if (!d) return '—';
+        return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    function esc(s) {
+        return String(s || '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    const BASE = 'https://zoho.gharda.com:14443/production';
+
+    // ── Sidebar ───────────────────────────────────────────────────────────
     const sidebarItems = [
-        `<div class="sidebar-item active" data-target="all" onclick="filterSection('all', this)">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        `<a class="nav-item active" href="#" onclick="return filterCat('__all__', this)">
+            <svg class="nav-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
             </svg>
-            <span>All Documents</span>
-            <span class="sidebar-count">${totalFiles}</span>
-        </div>`,
-        ...sections.map(s => `
-        <div class="sidebar-item" data-target="${s.id}" onclick="filterSection('${s.id}', this)">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                ${s.type === 'image_upload'
-                    ? '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'
-                    : '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>'}
+            <span class="nav-label">All Documents</span>
+            <span class="nav-badge">${totalFiles}</span>
+        </a>`,
+        ...Object.entries(categories).map(([cat, files]) => `
+        <a class="nav-item" href="#" onclick="return filterCat('${esc(cat)}', this)">
+            <svg class="nav-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
-            <span>${escapeHtml(s.label)}</span>
-            <span class="sidebar-count">${s.count}</span>
-        </div>`),
+            <span class="nav-label">${esc(cat)}</span>
+            <span class="nav-badge">${files.length}</span>
+        </a>`),
     ].join('');
 
-    // ── Doc sections HTML ──────────────────────────────────────────────────
-    const docSections = sections.map(s => `
-        <div class="doc-section" id="${s.id}">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">${escapeHtml(s.label)}</div>
-                    <div class="section-meta mono">${escapeHtml(s.apiName)}</div>
-                </div>
-                <span class="badge ${s.type === 'image_upload' ? 'badge-warn' : 'badge-ok'}">
-                    ${s.type === 'image_upload' ? 'Image' : 'File Upload'}
-                </span>
-            </div>
-            ${s.fileRows}
-        </div>`
-    ).join('');
+    // ── File rows ─────────────────────────────────────────────────────────
+    const fileRows = allFiles.map(file => {
+        const ft      = fileType(file.name);
+        const ext     = (file.name || '').split('.').pop().toUpperCase().slice(0, 4);
+        const isImage = ft.label === 'IMG';
+        const absUrl  = BASE + file.url;
+
+        return `
+        <tr class="file-row" data-cat="${esc(file.fieldLabel || '')}">
+            <td class="col-icon">
+                <div class="file-badge" style="background:${ft.bg};color:${ft.color};">${esc(ext)}</div>
+            </td>
+            <td class="col-name">
+                <div class="file-name">${esc(file.name)}</div>
+                <div class="file-cat">${esc(file.fieldLabel || '')}</div>
+            </td>
+            <td class="col-size">${fmtSize(file.size)}</td>
+            <td class="col-date">${fmtDate(file.modified)}</td>
+            <td class="col-actions">
+                ${isImage ? `<a href="${esc(absUrl)}" target="_blank" class="btn-action btn-view">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>View</a>` : ''}
+                <a href="${esc(absUrl)}" download class="btn-action btn-dl">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>Download</a>
+            </td>
+        </tr>`;
+    }).join('');
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Documents — Gharda CRM</title>
+    <title>My Documents — Gharda Chemicals</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
-            --bg:         #0f1117;
-            --surface:    #1a1d27;
-            --surface-2:  #242836;
-            --border:     #2e3346;
-            --text:       #e4e6ef;
-            --text-muted: #8b8fa3;
-            --accent:     #4f8fff;
-            --accent-glow:rgba(79,143,255,0.15);
-            --green:      #34d399;
-            --orange:     #fbbf24;
-            --radius:     10px;
-            --font:       'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-            --mono:       'Cascadia Code','Fira Code',Consolas,monospace;
-            --sidebar-w:  260px;
+            --blue:      #0078D4;
+            --blue-dk:   #005A9E;
+            --blue-lt:   #EFF6FC;
+            --blue-mid:  #C7E0F4;
+            --bg:        #F3F2F1;
+            --surface:   #FFFFFF;
+            --s2:        #F3F2F1;
+            --s3:        #EDEBE9;
+            --border:    #E1DFDD;
+            --text:      #201F1E;
+            --muted:     #605E5C;
+            --light:     #A19F9D;
+            --sw:        240px;
+            --font:      'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
         }
+        html, body { height: 100%; overflow: hidden; }
+        body { font-family: var(--font); background: var(--bg); color: var(--text); font-size: 14px; display: flex; flex-direction: column; }
 
-        body {
-            font-family: var(--font);
-            background: var(--bg);
-            color: var(--text);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        /* ── Top bar ───────────────────────────────────────────── */
-        .topbar {
-            height: 56px;
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            padding: 0 24px;
-            gap: 16px;
-            flex-shrink: 0;
-            z-index: 10;
-        }
-        .topbar-logo {
-            display: flex; align-items: center; gap: 10px;
-            font-size: 15px; font-weight: 700; color: var(--text);
-        }
-        .topbar-logo-icon {
-            width: 30px; height: 30px;
-            background: var(--accent); border-radius: 7px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 14px; font-weight: 800; color: white;
-        }
-        .topbar-divider { width: 1px; height: 24px; background: var(--border); }
-        .topbar-title {
-            font-size: 14px; color: var(--text-muted);
-            display: flex; align-items: center; gap: 8px;
-        }
-        .topbar-title strong { color: var(--text); }
-        .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-        .topbar-stats {
-            font-size: 12px; color: var(--text-muted);
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 4px 12px;
-            display: flex; gap: 16px;
-        }
-        .topbar-stats span { color: var(--accent); font-weight: 600; }
-        .expiry-badge {
-            font-size: 12px;
-            background: rgba(251,191,36,0.1);
-            border: 1px solid rgba(251,191,36,0.3);
-            color: var(--orange);
-            border-radius: 6px;
-            padding: 4px 10px;
+        /* Suite bar */
+        .suite { height: 48px; background: var(--blue); display: flex; align-items: center; padding: 0 16px; gap: 10px; flex-shrink: 0; }
+        .suite-box { width: 26px; height: 26px; background: #fff; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: var(--blue); }
+        .suite-name { color: #fff; font-size: 15px; font-weight: 600; }
+        .suite-div  { width: 1px; height: 20px; background: rgba(255,255,255,0.3); }
+        .suite-app  { color: rgba(255,255,255,0.85); font-size: 13px; }
+        .suite-right { margin-left: auto; }
+        .expiry {
+            background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25);
+            color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 12px;
             display: flex; align-items: center; gap: 6px;
         }
+        .expiry-dot { width: 6px; height: 6px; border-radius: 50%; background: #FFD700; animation: blink 2s infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
 
-        /* ── Main layout ───────────────────────────────────────── */
-        .main {
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-        }
+        /* Command bar */
+        .cmdbar { height: 44px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; gap: 2px; flex-shrink: 0; }
+        .cmd { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 2px; font-size: 13px; color: var(--text); background: transparent; border: none; cursor: pointer; text-decoration: none; transition: background .1s; }
+        .cmd:hover { background: var(--s3); color: var(--text); }
+        .cmd svg { color: var(--blue); }
+        .cmd-sep { width: 1px; height: 22px; background: var(--border); margin: 0 6px; }
+        .search-wrap { margin-left: auto; position: relative; }
+        .search-wrap svg { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--light); pointer-events: none; }
+        .search-wrap input { border: 1px solid var(--border); border-radius: 2px; padding: 5px 8px 5px 28px; font-size: 13px; font-family: var(--font); color: var(--text); background: var(--surface); outline: none; width: 220px; transition: border-color .15s, box-shadow .15s; }
+        .search-wrap input:focus { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+        .search-wrap input::placeholder { color: var(--light); }
 
-        /* ── Sidebar ───────────────────────────────────────────── */
-        .sidebar {
-            width: var(--sidebar-w);
-            background: var(--surface);
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-            overflow-y: auto;
-        }
-        .sidebar-header {
-            padding: 16px 16px 8px;
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: 0.8px;
-            text-transform: uppercase;
-            color: var(--text-muted);
-        }
-        .sidebar-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px 16px;
-            cursor: pointer;
-            font-size: 13px;
-            color: var(--text-muted);
-            border-left: 3px solid transparent;
-            transition: all 0.15s;
-            user-select: none;
-        }
-        .sidebar-item:hover {
-            background: var(--surface-2);
-            color: var(--text);
-        }
-        .sidebar-item.active {
-            background: var(--accent-glow);
-            color: var(--accent);
-            border-left-color: var(--accent);
-        }
-        .sidebar-item svg { flex-shrink: 0; opacity: 0.7; }
-        .sidebar-item span:nth-child(2) { flex: 1; }
-        .sidebar-count {
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 1px 7px;
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-muted);
-        }
-        .sidebar-item.active .sidebar-count {
-            background: rgba(79,143,255,0.2);
-            border-color: rgba(79,143,255,0.3);
-            color: var(--accent);
-        }
-        .sidebar-divider {
-            height: 1px;
-            background: var(--border);
-            margin: 8px 16px;
-        }
+        /* Layout */
+        .layout { display: flex; flex: 1; overflow: hidden; }
 
-        /* ── Docs area ─────────────────────────────────────────── */
-        .docs-area {
-            flex: 1;
-            overflow-y: auto;
-            padding: 24px;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
+        /* Sidebar */
+        .sidebar { width: var(--sw); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0; }
+        .sb-section { padding: 12px 8px 4px; }
+        .sb-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); padding: 0 8px; margin-bottom: 4px; }
+        .nav-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 2px; font-size: 13px; color: var(--text); text-decoration: none; cursor: pointer; transition: background .1s; user-select: none; }
+        .nav-item:hover { background: var(--s3); }
+        .nav-item.active { background: var(--blue-lt); color: var(--blue-dk); font-weight: 600; }
+        .nav-item.active .nav-icon { color: var(--blue); }
+        .nav-icon { color: var(--muted); flex-shrink: 0; }
+        .nav-label { flex: 1; }
+        .nav-badge { font-size: 11px; font-weight: 600; color: var(--muted); background: var(--s3); padding: 1px 6px; border-radius: 10px; }
+        .nav-item.active .nav-badge { background: var(--blue-mid); color: var(--blue-dk); }
+        .sb-divider { height: 1px; background: var(--border); margin: 8px 12px; }
+        .sb-info { padding: 10px 16px 16px; margin-top: auto; }
+        .sb-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 3px 0; }
+        .sb-row strong { color: var(--text); }
 
-        /* ── Search bar ────────────────────────────────────────── */
-        .search-wrap {
-            position: relative;
-            margin-bottom: 4px;
-        }
-        .search-wrap svg {
-            position: absolute;
-            left: 12px; top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-muted);
-            pointer-events: none;
-        }
-        .search-input {
-            width: 100%;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 10px 12px 10px 38px;
-            font-size: 14px;
-            color: var(--text);
-            font-family: var(--font);
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        .search-input:focus { border-color: var(--accent); }
-        .search-input::placeholder { color: var(--text-muted); }
+        /* Content */
+        .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .bcbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 20px; display: flex; align-items: center; gap: 6px; font-size: 13px; flex-shrink: 0; }
+        .bc { color: var(--muted); }
+        .bc.cur { color: var(--text); font-weight: 500; }
+        .bc-sep { color: var(--light); font-size: 11px; }
 
-        /* ── Doc section ───────────────────────────────────────── */
-        .doc-section {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            overflow: hidden;
-            transition: border-color 0.2s;
-        }
-        .doc-section:hover { border-color: #3d4460; }
+        /* File table */
+        .tbl-wrap { flex: 1; overflow-y: auto; }
+        .no-res { display: none; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; color: var(--muted); text-align: center; }
+        .no-res svg { opacity: .3; margin-bottom: 16px; }
+        .no-res h3 { font-size: 16px; color: var(--text); margin-bottom: 6px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead { position: sticky; top: 0; z-index: 2; }
+        th { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 12px; font-weight: 600; font-size: 12px; color: var(--muted); text-align: left; white-space: nowrap; }
+        td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .file-row { background: var(--surface); transition: background .1s; }
+        .file-row:hover { background: var(--blue-lt); }
+        .file-row:hover .btn-action { opacity: 1; }
+        .col-icon { width: 44px; }
+        .col-name { min-width: 180px; }
+        .col-size { width: 90px; color: var(--muted); white-space: nowrap; }
+        .col-date { width: 120px; color: var(--muted); white-space: nowrap; }
+        .col-actions { width: 170px; text-align: right; }
+        .file-badge { width: 32px; height: 32px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; letter-spacing: -.3px; }
+        .file-name { font-weight: 500; color: var(--text); }
+        .file-cat  { font-size: 11px; color: var(--light); margin-top: 1px; }
+        .btn-action { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 2px; font-size: 12px; font-weight: 500; text-decoration: none; transition: all .1s; opacity: 0; margin-left: 4px; }
+        .btn-view { color: var(--blue); background: var(--blue-lt); border: 1px solid var(--blue-mid); }
+        .btn-view:hover { background: var(--blue-mid); }
+        .btn-dl { color: var(--text); background: var(--surface); border: 1px solid var(--border); }
+        .btn-dl:hover { background: var(--s3); border-color: var(--muted); color: var(--text); }
 
-        .section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
-            background: var(--surface-2);
-        }
-        .section-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text);
-            margin-bottom: 2px;
-        }
-        .section-meta {
-            font-family: var(--mono);
-            font-size: 11px;
-            color: var(--text-muted);
-        }
+        /* Status bar */
+        .statusbar { height: 24px; background: var(--surface); border-top: 1px solid var(--border); padding: 0 16px; display: flex; align-items: center; gap: 16px; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+        .statusbar span { color: var(--text); font-weight: 500; }
 
-        /* ── Doc item ──────────────────────────────────────────── */
-        .doc-item {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            padding: 14px 20px;
-            border-bottom: 1px solid var(--border);
-            transition: background 0.15s;
-        }
-        .doc-item:last-child { border-bottom: none; }
-        .doc-item:hover { background: var(--surface-2); }
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--s2); }
+        ::-webkit-scrollbar-thumb { background: #C8C6C4; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--light); }
 
-        .doc-icon {
-            width: 38px; height: 38px;
-            border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 10px; font-weight: 700;
-            color: white; flex-shrink: 0;
-        }
-        .fi-pdf   { background: #e74c3c; }
-        .fi-img   { background: #9b59b6; }
-        .fi-doc   { background: #3498db; }
-        .fi-xls   { background: #27ae60; }
-        .fi-zip   { background: #f39c12; }
-        .fi-txt   { background: #95a5a6; }
-        .fi-other { background: #7f8c8d; }
-
-        .doc-info { flex: 1; min-width: 0; }
-        .doc-name {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .doc-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-
-        .doc-actions { display: flex; gap: 8px; flex-shrink: 0; }
-
-        .action-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.15s;
-            text-decoration: none;
-            white-space: nowrap;
-        }
-        .preview-btn {
-            background: rgba(79,143,255,0.1);
-            border: 1px solid rgba(79,143,255,0.25);
-            color: var(--accent);
-        }
-        .preview-btn:hover {
-            background: rgba(79,143,255,0.2);
-            border-color: var(--accent);
-        }
-        .download-btn {
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            color: var(--text);
-        }
-        .download-btn:hover {
-            border-color: var(--accent);
-            color: var(--accent);
-        }
-
-        /* ── Badge ─────────────────────────────────────────────── */
-        .badge {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-        .badge-ok   { background: rgba(52,211,153,0.1); color: #34d399; }
-        .badge-warn { background: rgba(251,191,36,0.1);  color: #fbbf24; }
-
-        /* ── Empty state ───────────────────────────────────────── */
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: var(--text-muted);
-            text-align: center;
-            padding: 60px;
-        }
-        .empty-icon { font-size: 48px; opacity: 0.3; margin-bottom: 16px; }
-        .empty-title { font-size: 18px; color: var(--text); margin-bottom: 8px; }
-
-        /* ── Scrollbar ─────────────────────────────────────────── */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #4a4f6a; }
-
-        /* ── Responsive ────────────────────────────────────────── */
-        @media (max-width: 680px) {
-            :root { --sidebar-w: 200px; }
-            .topbar-stats { display: none; }
-            .doc-actions { flex-direction: column; gap: 4px; }
+        @media (max-width: 640px) {
+            :root { --sw: 0px; }
+            .sidebar, .col-date, .col-size { display: none; }
         }
     </style>
 </head>
 <body>
 
-    <!-- Top bar -->
-    <div class="topbar">
-        <div class="topbar-logo">
-            <div class="topbar-logo-icon">G</div>
-            Gharda CRM
+<div class="suite">
+    <div class="suite-box">G</div>
+    <span class="suite-name">Gharda Chemicals</span>
+    <div class="suite-div"></div>
+    <span class="suite-app">Document Library</span>
+    <div class="suite-right">
+        <div class="expiry">
+            <div class="expiry-dot"></div>
+            Secure link &middot; expires in 15 min
         </div>
-        <div class="topbar-divider"></div>
-        <div class="topbar-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-            </svg>
-            My Documents
+    </div>
+</div>
+
+<div class="cmdbar">
+    <a class="cmd" href="#" onclick="return downloadAll()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download All
+    </a>
+    <div class="cmd-sep"></div>
+    <div class="search-wrap">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="srch" placeholder="Search documents" oninput="search(this.value)" autocomplete="off"/>
+    </div>
+</div>
+
+<div class="layout">
+    <div class="sidebar">
+        <div class="sb-section">
+            <div class="sb-label">Libraries</div>
+            ${sidebarItems}
         </div>
-        <div class="topbar-right">
-            <div class="topbar-stats">
-                <span>${totalFiles}</span> files &nbsp;·&nbsp; <span>${totalSize}</span>
-            </div>
-            <div class="expiry-badge">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                </svg>
-                Link expires in 15 min
-            </div>
+        <div class="sb-divider"></div>
+        <div class="sb-info">
+            <div class="sb-row"><span>Total files</span><strong>${totalFiles}</strong></div>
+            <div class="sb-row"><span>Total size</span><strong>${fmtSize(totalSize)}</strong></div>
+            <div class="sb-row"><span>Account</span><strong style="font-size:11px;word-break:break-all;">${esc(folderName)}</strong></div>
         </div>
     </div>
 
-    <!-- Main -->
-    <div class="main">
-
-        <!-- Sidebar -->
-        <div class="sidebar">
-            <div class="sidebar-header">Documents</div>
-            ${sidebarItems}
-            <div class="sidebar-divider"></div>
-            <div class="sidebar-header" style="margin-top:4px;">Account</div>
-            <div class="sidebar-item" style="cursor:default; opacity:0.6;">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                    <circle cx="12" cy="7" r="4"/>
-                </svg>
-                <span style="font-family:var(--mono);font-size:11px;color:var(--text-muted);">
-                    ${escapeHtml(folderName)}
-                </span>
-            </div>
+    <div class="content">
+        <div class="bcbar">
+            <span class="bc">Document Library</span>
+            <span class="bc-sep">›</span>
+            <span class="bc cur" id="bcCur">All Documents</span>
         </div>
-
-        <!-- Docs area -->
-        <div class="docs-area" id="docsArea">
-
-            <!-- Search -->
-            <div class="search-wrap">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <div class="tbl-wrap">
+            <div class="no-res" id="noRes">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                     <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
-                <input
-                    class="search-input"
-                    id="searchInput"
-                    type="text"
-                    placeholder="Search documents by name…"
-                    oninput="searchDocs(this.value)"
-                    autocomplete="off"
-                />
+                <h3>No documents found</h3>
+                <p>Try a different search term or category.</p>
             </div>
-
-            <!-- No results -->
-            <div id="noResults" class="empty-state" style="display:none;">
-                <div class="empty-icon">🔍</div>
-                <div class="empty-title">No documents found</div>
-                <p style="font-size:13px;">Try a different search term.</p>
-            </div>
-
-            <!-- Document sections -->
-            ${docSections}
-
+            <table id="tbl">
+                <thead>
+                    <tr>
+                        <th class="col-icon"></th>
+                        <th class="col-name">Name</th>
+                        <th class="col-size">Size</th>
+                        <th class="col-date">Modified</th>
+                        <th class="col-actions"></th>
+                    </tr>
+                </thead>
+                <tbody>${fileRows}</tbody>
+            </table>
         </div>
     </div>
+</div>
 
-    <script>
-        // ── Filter by sidebar category ────────────────────────────────────
-        function filterSection(target, el) {
-            // Update active state
-            document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
-            el.classList.add('active');
+<div class="statusbar">
+    <span id="stCount">${totalFiles}</span> items &nbsp;·&nbsp;
+    <span id="stSize">${fmtSize(totalSize)}</span>
+</div>
 
-            // Clear search
-            document.getElementById('searchInput').value = '';
+<script>
+    const rows = Array.from(document.querySelectorAll('.file-row'));
+    let curCat = '__all__', curQ = '';
 
-            const sections = document.querySelectorAll('.doc-section');
-            sections.forEach(s => {
-                s.style.display = (target === 'all' || s.id === target) ? '' : 'none';
-            });
+    function filterCat(cat, el) {
+        curCat = cat; curQ = '';
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        el.classList.add('active');
+        document.getElementById('bcCur').textContent = cat === '__all__' ? 'All Documents' : cat;
+        document.getElementById('srch').value = '';
+        apply(); return false;
+    }
 
-            document.getElementById('noResults').style.display = 'none';
+    function search(q) {
+        curQ = q.toLowerCase().trim();
+        if (curQ) {
+            curCat = '__all__';
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            const allNav = document.querySelector('[onclick*="__all__"]');
+            if (allNav) allNav.classList.add('active');
         }
+        apply();
+    }
 
-        // ── Search docs ───────────────────────────────────────────────────
-        function searchDocs(query) {
-            const q = query.toLowerCase().trim();
+    function apply() {
+        let n = 0;
+        rows.forEach(r => {
+            const catOk  = curCat === '__all__' || r.dataset.cat === curCat;
+            const searchOk = !curQ || r.querySelector('.file-name').textContent.toLowerCase().includes(curQ);
+            const show   = catOk && searchOk;
+            r.style.display = show ? '' : 'none';
+            if (show) n++;
+        });
+        document.getElementById('noRes').style.display = n ? 'none' : 'flex';
+        document.getElementById('tbl').style.display   = n ? '' : 'none';
+        document.getElementById('stCount').textContent = n;
+    }
 
-            // Reset sidebar selection to "All" when searching
-            if (q) {
-                document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
-                document.querySelector('[data-target="all"]').classList.add('active');
-            }
-
-            let anyVisible = false;
-
-            document.querySelectorAll('.doc-section').forEach(section => {
-                let sectionHasMatch = false;
-
-                section.querySelectorAll('.doc-item').forEach(item => {
-                    const name = item.querySelector('.doc-name').textContent.toLowerCase();
-                    const show = !q || name.includes(q);
-                    item.style.display = show ? '' : 'none';
-                    if (show) sectionHasMatch = true;
-                });
-
-                section.style.display = sectionHasMatch ? '' : 'none';
-                if (sectionHasMatch) anyVisible = true;
-            });
-
-            document.getElementById('noResults').style.display = anyVisible || !q ? 'none' : 'flex';
-        }
-    </script>
-
+    function downloadAll() {
+        rows.filter(r => r.style.display !== 'none')
+            .map(r => r.querySelector('.btn-dl')?.href)
+            .filter(Boolean)
+            .forEach((url, i) => setTimeout(() => {
+                const a = document.createElement('a');
+                a.href = url; a.download = '';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            }, i * 400));
+        return false;
+    }
+</script>
 </body>
 </html>`;
 }
 
-
-// ── Empty state when no files exist ──────────────────────────────────────────
 function renderDocsEmpty(folderName) {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>No Documents — Gharda CRM</title>
+    <title>No Documents — Gharda Chemicals</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background: #0f1117; color: #e4e6ef;
-            min-height: 100vh; display: flex; align-items: center; justify-content: center;
-        }
-        .wrap {
-            text-align: center; max-width: 420px; padding: 48px 32px;
-            background: #1a1d27; border-radius: 16px;
-            border: 1px solid #2e3346;
-        }
-        .icon { font-size: 48px; opacity: 0.3; margin-bottom: 20px; }
-        h1 { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
-        p  { font-size: 13px; color: #8b8fa3; line-height: 1.6; }
-        .footer { margin-top: 32px; font-size: 11px; color: #4a4e63; }
+        *{box-sizing:border-box;margin:0;padding:0;}
+        body{font-family:'Segoe UI',-apple-system,sans-serif;background:#F3F2F1;color:#201F1E;min-height:100vh;display:flex;flex-direction:column;}
+        .top{height:48px;background:#0078D4;display:flex;align-items:center;padding:0 16px;gap:8px;}
+        .top-box{width:26px;height:26px;background:#fff;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#0078D4;}
+        .top span{color:#fff;font-size:15px;font-weight:600;}
+        .mid{flex:1;display:flex;align-items:center;justify-content:center;}
+        .card{background:#fff;border:1px solid #E1DFDD;border-radius:4px;padding:48px 40px;text-align:center;max-width:400px;}
+        .ico{font-size:48px;margin-bottom:16px;opacity:.4;}
+        h2{font-size:18px;font-weight:600;margin-bottom:8px;}
+        p{font-size:13px;color:#605E5C;line-height:1.6;}
     </style>
 </head>
 <body>
-    <div class="wrap">
-        <div class="icon">📂</div>
-        <h1>No Documents Found</h1>
-        <p>No files have been synced yet for this account.<br>Please contact your administrator.</p>
-        <div class="footer">Gharda Chemicals — Zoho CRM Integration</div>
+    <div class="top"><div class="top-box">G</div><span>Gharda Chemicals — Document Library</span></div>
+    <div class="mid">
+        <div class="card">
+            <div class="ico">📂</div>
+            <h2>No Documents Found</h2>
+            <p>No files have been synced for this account yet.<br>Please contact your administrator.</p>
+        </div>
     </div>
 </body>
 </html>`;

@@ -49,24 +49,46 @@ router.get('/approved', (req, res, next) => ctrl.listApproved(req, res, next));
  *   "expiresInMinutes": 15
  * }
  */
+// ════════════════════════════════════════════════════════════════════════════
+//  UPDATE in src/routes/accounts.js
+//  Replace the existing POST /:recordId/generate-link route with this one.
+//  It now also returns folderUrl so Zoho CRM can save it to a field.
+// ════════════════════════════════════════════════════════════════════════════
+
 router.post('/:recordId/generate-link', async (req, res, next) => {
     try {
         const { recordId } = req.params;
- 
-        // Validate recordId exists in Zoho (optional but recommended)
-        // const record = await ctrl.fetchAccountById(recordId);
-        // if (!record) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND' } });
- 
+
+        // Fetch account to get SAP_ID (needed for folder URL)
+        const record = await ctrl.fetchAccountById(recordId);
+
+        if (!record) {
+            return res.status(404).json({
+                success: false,
+                error: { code: 'NOT_FOUND', message: `Account ${recordId} not found in Zoho CRM.` },
+            });
+        }
+
+        const sapId    = record.SAP_ID || `crm-${recordId}`;
+        const baseUrl  = env.PUBLIC_BASE_URL || 'https://zoho.gharda.com:14443/production';
+
+        // ── 1. Encrypted token URL (for the docs viewer page) ────────────
         const { encryptedId, token } = TokenService.generate(recordId);
-        const baseUrl = env.PUBLIC_BASE_URL || 'https://zoho.gharda.com:14443/production';
-        const url     = `${baseUrl}/pages/docs/${encryptedId}?token=${token}`;
- 
+        const url = `${baseUrl}/pages/docs/${encryptedId}?token=${token}`;
+
+        // ── 2. Direct folder URL (for saving in Zoho CRM field) ──────────
+        //       Points to the VM storage folder for this account
+        const folderUrl = `${baseUrl}/storage/Accounts/${encodeURIComponent(sapId)}/`;
+
         res.json({
             success:          true,
-            url,
-            expiresInMinutes: 15,
+            url,                    // ← token-gated docs viewer page (share with user)
+            folderUrl,              // ← direct storage folder URL (save to CRM field)
+            sapId,
+            recordId,
+            expiresInMinutes: 15,   // url expires, folderUrl is permanent
         });
- 
+
     } catch (err) { next(err); }
 });
 
