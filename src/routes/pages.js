@@ -14,6 +14,8 @@ import {
     renderPaymentInvalid,
 } from '../views/pages.js';
 
+import { tokenGate } from '../middleware/tokenGate.js';
+
 const router = Router();
 
 // ── In-memory store for payment POST→GET bridge ─────────────────────────────
@@ -192,6 +194,40 @@ router.post('/accounts/:recordId/sync', async (req, res) => {
         logger.error('Pages: sync error', { recordId: req.params.recordId, message: err.message });
         res.status(500).send(renderError(500, 'Sync Failed',
             `Failed to sync account: ${err.message}`
+        ));
+    }
+});
+
+// ADD this route BEFORE the catch-all 404:
+ 
+/**
+ * GET /pages/docs/:encryptedId?token=xxx
+ *
+ * Token-gated document viewer — called from Zoho CRM button redirect.
+ * encryptedId is the AES-256-GCM encrypted CRM record ID.
+ * token is the short-lived HMAC signed payload (15 min expiry).
+ *
+ * Security:
+ *   ✅ Record ID is encrypted — URL reveals nothing
+ *   ✅ Token is signed — cannot be forged
+ *   ✅ Token contains encryptedId — cannot be used for another account
+ *   ✅ Token expires in 15 minutes — cannot be reused
+ *   ✅ No IP restriction needed — token IS the security layer
+ */
+router.get('/docs/:encryptedId', tokenGate, async (req, res) => {
+    try {
+        const { recordId } = req.tokenPayload;   // decrypted by tokenGate
+ 
+        // Get SAP_ID from Zoho to find the correct storage folder
+        const record     = await accountService.fetchAccountById(recordId);
+        const folderName = record?.SAP_ID || `crm-${recordId}`;
+        const data       = await accountService.listDownloadedFiles(folderName);
+ 
+        res.send(renderAccountFiles(folderName, data));
+    } catch (err) {
+        logger.error('Pages: token-gated docs error', { message: err.message });
+        res.status(500).send(renderError(500, 'Server Error',
+            'Something went wrong loading the documents. Please try again.'
         ));
     }
 });

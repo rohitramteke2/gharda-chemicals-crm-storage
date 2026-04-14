@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import ctrl from '../controllers/AccountController.js';
+import TokenService from '../services/TokenService.js';
+import { env }      from '../config/env.js';
 
 const router = Router();
 
@@ -33,6 +35,40 @@ router.get('/', (req, res, next) => ctrl.listAll(req, res, next));
  * Example: GET /api/v1/accounts/approved
  */
 router.get('/approved', (req, res, next) => ctrl.listApproved(req, res, next));
+
+/**
+ * POST /accounts/:recordId/generate-link
+ *
+ * Called by the Zoho CRM button.
+ * Encrypts the record ID and generates a 15-min signed URL.
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "url": "https://zoho.gharda.com:14443/production/pages/docs/a3f9c2b1...?token=xxx",
+ *   "expiresInMinutes": 15
+ * }
+ */
+router.post('/:recordId/generate-link', async (req, res, next) => {
+    try {
+        const { recordId } = req.params;
+ 
+        // Validate recordId exists in Zoho (optional but recommended)
+        // const record = await ctrl.fetchAccountById(recordId);
+        // if (!record) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND' } });
+ 
+        const { encryptedId, token } = TokenService.generate(recordId);
+        const baseUrl = env.PUBLIC_BASE_URL || 'https://zoho.gharda.com:14443/production';
+        const url     = `${baseUrl}/pages/docs/${encryptedId}?token=${token}`;
+ 
+        res.json({
+            success:          true,
+            url,
+            expiresInMinutes: 15,
+        });
+ 
+    } catch (err) { next(err); }
+});
 
 /**
  * GET /accounts/:recordId

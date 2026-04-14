@@ -12,6 +12,7 @@ export const env = {
 
     // Security
     API_KEY:              get('API_KEY'),
+    TOKEN_SECRET: get('TOKEN_SECRET'),
     RATE_LIMIT_WINDOW_MS: parseInt(get('RATE_LIMIT_WINDOW_MS', '60000'), 10),
     RATE_LIMIT_MAX:       parseInt(get('RATE_LIMIT_MAX_REQUESTS', '100'), 10),
 
