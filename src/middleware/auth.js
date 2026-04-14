@@ -3,16 +3,20 @@ import { env } from '../config/env.js';
 
 // ── Rate limiter ───────────────────────────────────────────────────────────
 export const apiLimiter = rateLimit({
-    windowMs: env.RATE_LIMIT_WINDOW_MS,
-    max:      env.RATE_LIMIT_MAX,
+    windowMs:        env.RATE_LIMIT_WINDOW_MS,
+    max:             env.RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders:   false,
+    keyGenerator: (req) => {
+        return req.headers['x-forwarded-for']?.split(',')[0].trim()
+            || req.socket.remoteAddress
+            || 'unknown';
+    },
     message: {
         success: false,
         error: { code: 'RATE_LIMITED', message: 'Too many requests. Slow down.' },
     },
 });
-
 // ── API key auth ───────────────────────────────────────────────────────────
 export function apiKeyAuth(req, res, next) {
     // Skip auth if no key is configured (dev convenience)
