@@ -135,8 +135,8 @@ export function createApp() {
     // These are handled first by the router since they're registered first in pages.js
 
     // Accounts & Docs — IP restricted
-    app.use('/pages/accounts', ipWhitelist);
-    app.use('/pages/docs', ipWhitelist);
+    app.use('/pages/accounts');
+    app.use('/pages/docs');
 
     // Mount all page routes
     app.use('/pages', pageRoutes);
