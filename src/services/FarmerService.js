@@ -1,17 +1,17 @@
-import sql     from 'mssql';
-import SQLService from './SQLService.js';
-import logger  from '../utils/logger.js';
+import sql        from 'mssql';
+import SQLService  from './SQLService.js';
+import logger      from '../utils/logger.js';
 
 /**
  * FarmerService
  * ─────────────
- * All database operations for the [farmers] table.
- * Sits on top of SQLService (shared pool + query helpers).
+ * Table   : dbo.farm_farmers
+ * Columns : id, market_id, village_id, name, mobile, category, created_at, updated_at
  */
 class FarmerService {
 
     // ── LIST (paginated + optional filters) ──────────────────────────────
-    async list({ page = 1, per_page = 50, village_id, dealer_id, tm_id } = {}) {
+    async list({ page = 1, per_page = 50, village_id, market_id, category } = {}) {
         const pool    = await SQLService.getPool();
         const request = pool.request();
 
@@ -21,36 +21,36 @@ class FarmerService {
         const conditions = [];
 
         if (village_id) {
-            request.input('village_id', sql.Int, Number(village_id));
+            request.input('village_id', sql.Int,          Number(village_id));
             conditions.push('[village_id] = @village_id');
         }
-        if (dealer_id) {
-            request.input('dealer_id', sql.Int, Number(dealer_id));
-            conditions.push('[dealer_id] = @dealer_id');
+        if (market_id) {
+            request.input('market_id',  sql.SmallInt,     Number(market_id));
+            conditions.push('[market_id] = @market_id');
         }
-        if (tm_id) {
-            request.input('tm_id', sql.Int, Number(tm_id));
-            conditions.push('[tm_id] = @tm_id');
+        if (category) {
+            request.input('category',   sql.NVarChar(10), String(category));
+            conditions.push('[category] = @category');
         }
 
         const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
         // Count query (same filters, no pagination)
         const countReq = pool.request();
-        if (village_id) countReq.input('village_id', sql.Int, Number(village_id));
-        if (dealer_id)  countReq.input('dealer_id',  sql.Int, Number(dealer_id));
-        if (tm_id)      countReq.input('tm_id',      sql.Int, Number(tm_id));
+        if (village_id) countReq.input('village_id', sql.Int,          Number(village_id));
+        if (market_id)  countReq.input('market_id',  sql.SmallInt,     Number(market_id));
+        if (category)   countReq.input('category',   sql.NVarChar(10), String(category));
 
         const countResult = await countReq.query(
-            `SELECT COUNT(*) AS total FROM [farmers] ${whereClause}`
+            `SELECT COUNT(*) AS total FROM dbo.farm_farmers ${whereClause}`
         );
         const total = countResult.recordset[0].total;
 
         const dataResult = await request.query(`
             SELECT *
-            FROM   [farmers]
+            FROM   dbo.farm_farmers
             ${whereClause}
-            ORDER  BY [farmer_id] ASC
+            ORDER  BY [id] ASC
             OFFSET ${offset} ROWS
             FETCH NEXT ${limit} ROWS ONLY
         `);
@@ -58,27 +58,27 @@ class FarmerService {
         logger.debug('FarmerService: list', { page, per_page: limit, total });
 
         return {
-            data:       dataResult.recordset,
+            data: dataResult.recordset,
             pagination: {
                 total,
-                page:       Number(page),
-                per_page:   limit,
+                page:        Number(page),
+                per_page:    limit,
                 total_pages: Math.ceil(total / limit),
             },
         };
     }
 
     // ── GET ONE ───────────────────────────────────────────────────────────
-    async getById(farmerId) {
+    async getById(id) {
         const pool    = await SQLService.getPool();
         const request = pool.request();
-        request.input('farmer_id', sql.Int, Number(farmerId));
+        request.input('id', sql.Int, Number(id));
 
         const result = await request.query(
-            `SELECT * FROM [farmers] WHERE [farmer_id] = @farmer_id`
+            `SELECT * FROM dbo.farm_farmers WHERE [id] = @id`
         );
 
-        logger.debug('FarmerService: getById', { farmerId });
+        logger.debug('FarmerService: getById', { id });
         return result.recordset[0] || null;
     }
 
@@ -87,66 +87,75 @@ class FarmerService {
         const pool    = await SQLService.getPool();
         const request = pool.request();
 
-        // Bind each column from the payload
-        const columns = Object.keys(data);
-        const colList = columns.map(c => `[${c}]`).join(', ');
-        const valList = columns.map((c, i) => {
-            request.input(`c${i}`, data[c]);
-            return `@c${i}`;
-        }).join(', ');
+        request.input('market_id',  sql.SmallInt,     data.market_id  ? Number(data.market_id)  : null);
+        request.input('village_id', sql.Int,          data.village_id ? Number(data.village_id) : null);
+        request.input('name',       sql.NVarChar(255), String(data.name).slice(0, 255));
+        request.input('mobile',     sql.NVarChar(100), data.mobile ? String(data.mobile).slice(0, 100) : null);
+        request.input('category',   sql.NVarChar(10),  data.category || null);
 
         const result = await request.query(`
-            INSERT INTO [farmers] (${colList})
+            INSERT INTO dbo.farm_farmers
+                (market_id, village_id, name, mobile, category)
             OUTPUT INSERTED.*
-            VALUES (${valList})
+            VALUES
+                (@market_id, @village_id, @name, @mobile, @category)
         `);
 
         const created = result.recordset[0];
-        logger.info('FarmerService: created farmer', { farmer_id: created?.farmer_id });
+        logger.info('FarmerService: farmer created', { id: created?.id });
         return created;
     }
 
     // ── UPDATE ────────────────────────────────────────────────────────────
-    async update(farmerId, data) {
+    async update(id, data) {
         const pool    = await SQLService.getPool();
         const request = pool.request();
 
-        const columns = Object.keys(data);
-        if (!columns.length) throw new Error('No fields provided for update.');
+        // Only these columns are updatable
+        const allowed = ['name', 'mobile', 'category', 'market_id', 'village_id'];
+        const fields  = Object.keys(data).filter(k => allowed.includes(k));
 
-        const setList = columns.map((c, i) => {
-            request.input(`u${i}`, data[c]);
-            return `[${c}] = @u${i}`;
+        if (!fields.length) throw new Error('No valid fields provided for update.');
+
+        const setList = fields.map((col, i) => {
+            switch (col) {
+                case 'name':       request.input(`u${i}`, sql.NVarChar(255), String(data[col]).slice(0, 255)); break;
+                case 'mobile':     request.input(`u${i}`, sql.NVarChar(100), data[col] ? String(data[col]).slice(0, 100) : null); break;
+                case 'category':   request.input(`u${i}`, sql.NVarChar(10),  data[col]); break;
+                case 'market_id':  request.input(`u${i}`, sql.SmallInt,      Number(data[col])); break;
+                case 'village_id': request.input(`u${i}`, sql.Int,           Number(data[col])); break;
+            }
+            return `[${col}] = @u${i}`;
         }).join(', ');
 
-        request.input('farmer_id', sql.Int, Number(farmerId));
+        request.input('id', sql.Int, Number(id));
 
         const result = await request.query(`
-            UPDATE [farmers]
-            SET    ${setList}
+            UPDATE dbo.farm_farmers
+            SET    ${setList}, [updated_at] = GETDATE()
             OUTPUT INSERTED.*
-            WHERE  [farmer_id] = @farmer_id
+            WHERE  [id] = @id
         `);
 
         const updated = result.recordset[0] || null;
-        logger.info('FarmerService: updated farmer', { farmerId, updated: !!updated });
+        logger.info('FarmerService: farmer updated', { id, updated: !!updated });
         return updated;
     }
 
     // ── DELETE ────────────────────────────────────────────────────────────
-    async remove(farmerId) {
+    async remove(id) {
         const pool    = await SQLService.getPool();
         const request = pool.request();
-        request.input('farmer_id', sql.Int, Number(farmerId));
+        request.input('id', sql.Int, Number(id));
 
         const result = await request.query(`
-            DELETE FROM [farmers]
+            DELETE FROM dbo.farm_farmers
             OUTPUT DELETED.*
-            WHERE  [farmer_id] = @farmer_id
+            WHERE  [id] = @id
         `);
 
         const deleted = result.recordset[0] || null;
-        logger.info('FarmerService: deleted farmer', { farmerId, found: !!deleted });
+        logger.info('FarmerService: farmer deleted', { id, found: !!deleted });
         return deleted;
     }
 }

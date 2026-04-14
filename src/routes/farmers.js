@@ -9,26 +9,26 @@ const router = Router();
 
 /**
  * GET /farmers
- * List all farmers (paginated).
+ * List all farmers (paginated + filterable).
  *
  * Query params:
  *   page        {number}  default: 1
  *   per_page    {number}  default: 50, max: 200
  *   village_id  {number}  filter by village
- *   dealer_id   {number}  filter by dealer
- *   tm_id       {number}  filter by territory manager
+ *   market_id   {number}  filter by market
+ *   category    {string}  filter by category  e.g. "A", "A+", "B"
  *
- * Example: GET /api/v1/farmers?page=1&per_page=100&village_id=12
+ * Example: GET /api/v1/farmers?page=1&per_page=10&category=A
  */
 router.get('/', (req, res, next) => ctrl.list(req, res, next));
 
 /**
- * GET /farmers/:farmerId
- * Get a single farmer by ID.
+ * GET /farmers/:id
+ * Get a single farmer by id (the auto-increment id column).
  *
- * Example: GET /api/v1/farmers/42
+ * Example: GET /api/v1/farmers/9
  */
-router.get('/:farmerId', (req, res, next) => ctrl.getOne(req, res, next));
+router.get('/:id', (req, res, next) => ctrl.getOne(req, res, next));
 
 // ════════════════════════════════════════════════════════════════════════════
 //  CREATE
@@ -38,18 +38,16 @@ router.get('/:farmerId', (req, res, next) => ctrl.getOne(req, res, next));
  * POST /farmers
  * Create a new farmer record.
  *
- * Body: JSON object. Column names must match the [farmers] table.
- * Required: farmer_name
+ * Body (JSON):
+ *   name        {string}  required
+ *   mobile      {string}  optional
+ *   category    {string}  optional  "A" | "A+" | "A++" | "B"
+ *   market_id   {number}  optional
+ *   village_id  {number}  optional
  *
  * Example:
  *   POST /api/v1/farmers
- *   {
- *     "farmer_name": "Ramesh Patil",
- *     "mobile_no":   "9876543210",
- *     "village_id":  5,
- *     "dealer_id":   3,
- *     "tm_id":       1
- *   }
+ *   { "name": "Ramesh Patil", "mobile": "9876543210", "market_id": 568, "category": "A" }
  */
 router.post('/', (req, res, next) => ctrl.create(req, res, next));
 
@@ -58,25 +56,26 @@ router.post('/', (req, res, next) => ctrl.create(req, res, next));
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * PATCH /farmers/:farmerId
- * Partially update an existing farmer (only send the fields you want to change).
+ * PATCH /farmers/:id
+ * Partially update a farmer — only send the fields you want to change.
+ * Updatable: name, mobile, category, market_id, village_id
  *
  * Example:
- *   PATCH /api/v1/farmers/42
- *   { "mobile_no": "9999999999" }
+ *   PATCH /api/v1/farmers/9
+ *   { "mobile": "9999999999", "category": "A+" }
  */
-router.patch('/:farmerId', (req, res, next) => ctrl.update(req, res, next));
+router.patch('/:id', (req, res, next) => ctrl.update(req, res, next));
 
 // ════════════════════════════════════════════════════════════════════════════
 //  DELETE
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * DELETE /farmers/:farmerId
+ * DELETE /farmers/:id
  * Permanently delete a farmer record.
  *
- * Example: DELETE /api/v1/farmers/42
+ * Example: DELETE /api/v1/farmers/9
  */
-router.delete('/:farmerId', (req, res, next) => ctrl.remove(req, res, next));
+router.delete('/:id', (req, res, next) => ctrl.remove(req, res, next));
 
 export default router;
