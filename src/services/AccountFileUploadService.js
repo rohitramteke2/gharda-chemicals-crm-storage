@@ -865,17 +865,25 @@ class AccountFileUploadService {
 
     async _scanFolder(folderPath) {
         let fileCount = 0, totalSize = 0;
-        const subfolders = await fse.readdir(folderPath, { withFileTypes: true });
-
-        for (const sf of subfolders.filter(e => e.isDirectory())) {
-            const files = await fse.readdir(path.join(folderPath, sf.name), { withFileTypes: true });
-            for (const f of files.filter(e => e.isFile())) {
-                const stat = await fse.stat(path.join(folderPath, sf.name, f.name));
+        const entries = await fse.readdir(folderPath, { withFileTypes: true });
+    
+        for (const entry of entries) {
+            if (entry.isFile()) {
+                // Flat files (new structure — no subfolders)
+                const stat = await fse.stat(path.join(folderPath, entry.name));
                 fileCount++;
                 totalSize += stat.size;
+            } else if (entry.isDirectory()) {
+                // Subfolders (old structure — still support for backwards compat)
+                const files = await fse.readdir(path.join(folderPath, entry.name), { withFileTypes: true });
+                for (const f of files.filter(e => e.isFile())) {
+                    const stat = await fse.stat(path.join(folderPath, entry.name, f.name));
+                    fileCount++;
+                    totalSize += stat.size;
+                }
             }
         }
-
+    
         return { fileCount, totalSize };
     }
 
