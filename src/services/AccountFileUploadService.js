@@ -468,6 +468,7 @@ class AccountFileUploadService {
     //  5. Process all 22 fields for a single record
     //     ✅ PARALLEL downloads (PARALLEL_LIMIT concurrent)
     //     ✅ Skip already-downloaded files
+    //     ✅ Files saved flat in account folder (no subfolders)
     // ═══════════════════════════════════════════════════════════════════════
 
     async processRecordFiles(record) {
@@ -492,14 +493,14 @@ class AccountFileUploadService {
         for (const field of FILE_UPLOAD_FIELDS) {
 
             if (field.type === 'image_upload') {
-                const fieldDir    = path.join(destDir, field.apiName);
+                // ── Images saved flat in destDir (no subfolder) ──────────
                 const fieldImages = imageFieldData[field.apiName] || null;
 
                 if (fieldImages && fieldImages.length > 0) {
                     for (const imgAttachment of fieldImages) {
                         tasks.push(async () => ({
                             fieldApiName: field.apiName,
-                            results: await this.downloadImageField(recordId, field.apiName, imgAttachment, fieldDir),
+                            results: await this.downloadImageField(recordId, field.apiName, imgAttachment, destDir),
                         }));
                     }
                 } else {
@@ -511,7 +512,7 @@ class AccountFileUploadService {
                 continue;
             }
 
-            // FILE UPLOAD
+            // FILE UPLOAD — saved flat in destDir (no subfolder)
             const fieldValue = record[field.apiName];
 
             logger.info('Accounts: field value', {
@@ -533,7 +534,6 @@ class AccountFileUploadService {
             for (const file of files) {
                 const fileId   = file.file_Id || file.id || file.attachment_Id || file.encrypted_id;
                 const fileName = file.file_Name || file.File_Name || file.name || `${field.apiName}_${fileId}`;
-                const fieldDir = path.join(destDir, field.apiName);
 
                 if (!fileId) {
                     tasks.push(async () => ({
@@ -545,7 +545,7 @@ class AccountFileUploadService {
 
                 tasks.push(async () => ({
                     fieldApiName: field.apiName,
-                    results: [await this.downloadFieldFile(recordId, fileId, fileName, fieldDir)],
+                    results: [await this.downloadFieldFile(recordId, fileId, fileName, destDir)],
                 }));
             }
         }
@@ -585,7 +585,7 @@ class AccountFileUploadService {
                 continue;
             }
 
-            const okCount   = results.filter(r => r.status === 'ok' || r.status === 'skipped').length;
+            const okCount     = results.filter(r => r.status === 'ok' || r.status === 'skipped').length;
             const failedCount = results.filter(r => r.status === 'failed').length;
 
             totalFiles   += results.length;
@@ -686,6 +686,7 @@ class AccountFileUploadService {
 
     // ═══════════════════════════════════════════════════════════════════════
     //  8. Download a single specific field for one account
+    //     ✅ Files saved flat in account folder (no subfolders)
     // ═══════════════════════════════════════════════════════════════════════
 
     async downloadSingleField(recordId, fieldName) {
@@ -700,7 +701,8 @@ class AccountFileUploadService {
         }
 
         const folderName = record.SAP_ID || `crm-${record.id}`;
-        const fieldDir   = path.join(this.storageRoot, 'Accounts', folderName, fieldName);
+        // ── Save flat in account folder, no fieldName subfolder ──────────
+        const destDir = path.join(this.storageRoot, 'Accounts', folderName);
 
         logger.info('AccountFileUploadService: downloadSingleField', { recordId, fieldName, type: fieldDef.type });
 
@@ -713,7 +715,7 @@ class AccountFileUploadService {
             results = [];
             if (fieldImages && fieldImages.length > 0) {
                 for (const imgAttachment of fieldImages) {
-                    const res = await this.downloadImageField(recordId, fieldName, imgAttachment, fieldDir);
+                    const res = await this.downloadImageField(recordId, fieldName, imgAttachment, destDir);
                     results.push(...res);
                 }
             } else {
@@ -732,7 +734,7 @@ class AccountFileUploadService {
             for (const file of files) {
                 const fileId   = file.file_Id || file.id || file.attachment_Id || file.encrypted_id;
                 const fileName = file.file_Name || file.File_Name || file.name || `${fieldName}_${fileId}`;
-                const result   = await this.downloadFieldFile(recordId, fileId, fileName, fieldDir);
+                const result   = await this.downloadFieldFile(recordId, fileId, fileName, destDir);
                 results.push(result);
             }
         }
@@ -750,6 +752,7 @@ class AccountFileUploadService {
 
     // ═══════════════════════════════════════════════════════════════════════
     //  9. Upload a file into a specific field
+    //     ✅ Saved flat in account folder (no subfolder)
     // ═══════════════════════════════════════════════════════════════════════
 
     async uploadFieldFile(recordId, fieldName, file) {
@@ -786,13 +789,14 @@ class AccountFileUploadService {
             return { status_api_check: false, error: { code: 'ZOHO_UPLOAD_FAILED', message: err.message, zoho: err.response?.data } };
         }
 
-        const dir  = path.join(this.storageRoot, 'Accounts', folderName, fieldName);
+        // ── Save flat in account folder (no subfolder) ────────────────────
+        const dir  = path.join(this.storageRoot, 'Accounts', folderName);
         const dest = path.join(dir, file.originalname);
         await fse.ensureDir(dir);
         await fse.writeFile(dest, file.buffer);
 
         const baseUrl    = env.PUBLIC_BASE_URL || 'https://zoho.gharda.com:14443/production';
-        const storageUrl = `${baseUrl}/storage/Accounts/${folderName}/${fieldName}/${encodeURIComponent(file.originalname)}`;
+        const storageUrl = `${baseUrl}/storage/Accounts/${folderName}/${encodeURIComponent(file.originalname)}`;
 
         return {
             status_api_check: true, recordId,
@@ -825,56 +829,87 @@ class AccountFileUploadService {
 
     // ═══════════════════════════════════════════════════════════════════════
     //  11. Scan local storage — list all files for a specific account
+    //      ✅ Supports both flat files and legacy subfolders
     // ═══════════════════════════════════════════════════════════════════════
 
     async listDownloadedFiles(sapId) {
         const accountDir = path.join(this.storageRoot, 'Accounts', sapId);
         if (!await fse.pathExists(accountDir)) return null;
 
-        const fieldFolders = await fse.readdir(accountDir, { withFileTypes: true });
-        const fields       = [];
+        const entries  = await fse.readdir(accountDir, { withFileTypes: true });
+        const fields   = [];
         let totalFiles = 0, totalSize = 0;
 
-        for (const ff of fieldFolders.filter(e => e.isDirectory())) {
-            const fieldPath = path.join(accountDir, ff.name);
-            const files     = await fse.readdir(fieldPath, { withFileTypes: true });
-            const fileList  = [];
+        for (const entry of entries) {
+            if (entry.isFile()) {
+                // ── Flat file (new structure) ─────────────────────────────
+                const stat     = await fse.stat(path.join(accountDir, entry.name));
+                const fieldDef = FILE_UPLOAD_FIELDS.find(f => f.apiName === entry.name);
 
-            for (const f of files.filter(e => e.isFile())) {
-                const stat = await fse.stat(path.join(fieldPath, f.name));
-                fileList.push({
-                    name: f.name, size: stat.size, modified: stat.mtime,
-                    url: `/storage/Accounts/${sapId}/${ff.name}/${encodeURIComponent(f.name)}`,
-                });
                 totalFiles++;
                 totalSize += stat.size;
-            }
 
-            const fieldDef = FILE_UPLOAD_FIELDS.find(f => f.apiName === ff.name);
-            fields.push({
-                fieldApiName: ff.name,
-                fieldLabel:   fieldDef?.label || ff.name,
-                fieldType:    fieldDef?.type  || 'unknown',
-                fileCount:    fileList.length,
-                files:        fileList,
-            });
+                fields.push({
+                    fieldApiName: entry.name,
+                    fieldLabel:   fieldDef?.label || entry.name,
+                    fieldType:    fieldDef?.type  || 'unknown',
+                    fileCount:    1,
+                    files: [{
+                        name:     entry.name,
+                        size:     stat.size,
+                        modified: stat.mtime,
+                        url:      `/storage/Accounts/${sapId}/${encodeURIComponent(entry.name)}`,
+                    }],
+                });
+
+            } else if (entry.isDirectory()) {
+                // ── Legacy subfolder (old structure — backwards compat) ────
+                const fieldPath = path.join(accountDir, entry.name);
+                const files     = await fse.readdir(fieldPath, { withFileTypes: true });
+                const fileList  = [];
+
+                for (const f of files.filter(e => e.isFile())) {
+                    const stat = await fse.stat(path.join(fieldPath, f.name));
+                    fileList.push({
+                        name:     f.name,
+                        size:     stat.size,
+                        modified: stat.mtime,
+                        url:      `/storage/Accounts/${sapId}/${entry.name}/${encodeURIComponent(f.name)}`,
+                    });
+                    totalFiles++;
+                    totalSize += stat.size;
+                }
+
+                const fieldDef = FILE_UPLOAD_FIELDS.find(f => f.apiName === entry.name);
+                fields.push({
+                    fieldApiName: entry.name,
+                    fieldLabel:   fieldDef?.label || entry.name,
+                    fieldType:    fieldDef?.type  || 'unknown',
+                    fileCount:    fileList.length,
+                    files:        fileList,
+                });
+            }
         }
 
         return { sapId, totalFiles, totalSize, fields };
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  12. Scan a folder — supports both flat files and legacy subfolders
+    // ═══════════════════════════════════════════════════════════════════════
+
     async _scanFolder(folderPath) {
         let fileCount = 0, totalSize = 0;
         const entries = await fse.readdir(folderPath, { withFileTypes: true });
-    
+
         for (const entry of entries) {
             if (entry.isFile()) {
-                // Flat files (new structure — no subfolders)
+                // Flat file (new structure)
                 const stat = await fse.stat(path.join(folderPath, entry.name));
                 fileCount++;
                 totalSize += stat.size;
             } else if (entry.isDirectory()) {
-                // Subfolders (old structure — still support for backwards compat)
+                // Subfolder (old structure — backwards compat)
                 const files = await fse.readdir(path.join(folderPath, entry.name), { withFileTypes: true });
                 for (const f of files.filter(e => e.isFile())) {
                     const stat = await fse.stat(path.join(folderPath, entry.name, f.name));
@@ -883,7 +918,7 @@ class AccountFileUploadService {
                 }
             }
         }
-    
+
         return { fileCount, totalSize };
     }
 
