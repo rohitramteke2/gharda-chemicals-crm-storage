@@ -263,17 +263,15 @@ function layout(title, breadcrumbs, bodyHtml) {
 //  REPLACE the existing renderDashboard function in src/views/pages.js
 // ════════════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════════════
+//  REPLACE the existing renderDashboard function in src/views/pages.js
+// ════════════════════════════════════════════════════════════════════════════
+
 export function renderDashboard(accounts = []) {
     const totalFiles = accounts.reduce((s, a) => s + a.fileCount, 0);
     const totalSize  = accounts.reduce((s, a) => s + a.totalSize, 0);
 
-    function esc(s) {
-        return String(s || '')
-            .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-            .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
-    // Pre-build all rows as JSON for JS to consume
+    // Serialize rows for client-side JS — done server-side, no template issues
     const rowsJson = JSON.stringify(accounts.map(a => ({
         sapId:     a.sapId,
         fileCount: a.fileCount,
@@ -311,7 +309,7 @@ export function renderDashboard(accounts = []) {
                          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                     </svg>
-                    <input id="searchInput" type="text" placeholder="Search SAP ID…"
+                    <input id="searchInput" type="text" placeholder="Search SAP ID..."
                         oninput="applyFilter()"
                         style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
                                padding:6px 12px 6px 34px;font-size:13px;color:var(--text);
@@ -327,13 +325,13 @@ export function renderDashboard(accounts = []) {
                 <table id="accountTable">
                     <thead>
                         <tr>
-                            <th style="cursor:pointer;" onclick="sortBy('sapId')">
+                            <th onclick="sortBy('sapId')" style="cursor:pointer;">
                                 SAP ID <span id="sort-sapId">↕</span>
                             </th>
-                            <th style="cursor:pointer;" onclick="sortBy('fileCount')">
+                            <th onclick="sortBy('fileCount')" style="cursor:pointer;">
                                 Files <span id="sort-fileCount">↕</span>
                             </th>
-                            <th style="cursor:pointer;" onclick="sortBy('totalSize')">
+                            <th onclick="sortBy('totalSize')" style="cursor:pointer;">
                                 Size <span id="sort-totalSize">↕</span>
                             </th>
                             <th>Action</th>
@@ -347,7 +345,7 @@ export function renderDashboard(accounts = []) {
             <div style="display:flex;align-items:center;justify-content:space-between;
                         padding:12px 20px;border-top:1px solid var(--border);flex-wrap:wrap;gap:8px;">
                 <div id="pageInfo" style="font-size:13px;color:var(--text-muted);"></div>
-                <div id="pageBtns" style="display:flex;gap:6px;"></div>
+                <div id="pageBtns" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
             </div>
         </div>` : '';
 
@@ -372,158 +370,124 @@ export function renderDashboard(accounts = []) {
         </div>
         ${emptyState}
         ${tableHtml}
-
-        <script>
-        const ALL_ROWS  = ${rowsJson};
-        let filtered    = [...ALL_ROWS];
-        let currentPage = 1;
-        let perPage     = 25;
-        let sortKey     = null;
-        let sortDir     = 1;  // 1=asc, -1=desc
-
-        function formatSize(bytes) {
-            if (!bytes) return '0 B';
-            const u = ['B','KB','MB','GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(1024));
-            return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + u[i];
-        }
-
-        function applyFilter() {
-            const q = document.getElementById('searchInput').value.toLowerCase().trim();
-            filtered = ALL_ROWS.filter(r => !q || r.sapId.toLowerCase().includes(q));
-            currentPage = 1;
-            render();
-        }
-
-        function setPerPage(val) {
-            perPage = Number(val);
-            currentPage = 1;
-            render();
-        }
-
-        function sortBy(key) {
-            if (sortKey === key) { sortDir *= -1; }
-            else { sortKey = key; sortDir = 1; }
-            // Update sort indicators
-            ['sapId','fileCount','totalSize'].forEach(k => {
-                const el = document.getElementById('sort-' + k);
-                if (el) el.textContent = k === sortKey ? (sortDir === 1 ? '↑' : '↓') : '↕';
-            });
-            filtered.sort((a, b) => {
-                const av = a[key], bv = b[key];
-                if (typeof av === 'string') return av.localeCompare(bv) * sortDir;
-                return (av - bv) * sortDir;
-            });
-            currentPage = 1;
-            render();
-        }
-
-        function render() {
-            const total     = filtered.length;
-            const totalPages= Math.max(1, Math.ceil(total / perPage));
-            currentPage     = Math.min(currentPage, totalPages);
-
-            const start = (currentPage - 1) * perPage;
-            const page  = filtered.slice(start, start + perPage);
-
-            // ── Table rows ──────────────────────────────────────────────
-            const tbody = document.getElementById('tableBody');
-            if (page.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted);">No accounts found</td></tr>';
-            } else {
-                tbody.innerHTML = page.map(a => \`
-                    <tr>
-                        <td>
-                            <a href="\${a.href}" style="font-weight:600;">\${a.sapId}</a>
-                        </td>
-                        <td>
-                            \${a.fileCount > 0
-                                ? '<span class="badge badge-ok">' + a.fileCount + ' files</span>'
-                                : '<span class="badge badge-empty">Empty</span>'}
-                        </td>
-                        <td class="text-muted text-sm">\${formatSize(a.totalSize)}</td>
-                        <td>
-                            <a href="\${a.href}" class="btn btn-secondary" style="padding:6px 14px;font-size:12px;">
-                                Browse Files →
-                            </a>
-                        </td>
-                    </tr>
-                \`).join('');
-            }
-
-            // ── Page info ────────────────────────────────────────────────
-            const from = total === 0 ? 0 : start + 1;
-            const to   = Math.min(start + perPage, total);
-            document.getElementById('pageInfo').textContent =
-                \`Showing \${from}–\${to} of \${total} accounts\`;
-
-            // ── Pagination buttons ────────────────────────────────────────
-            const btns = document.getElementById('pageBtns');
-            const btnStyle = (active) =>
-                \`style="padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid var(--border);
-                  background:\${active ? 'var(--accent)' : 'var(--surface-2)'};
-                  color:\${active ? '#fff' : 'var(--text)'};font-family:var(--font);\`+ '"';
-
-            let html = '';
-
-            // Prev
-            html += \`<button onclick="goPage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''}
-                style="padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;
-                       border:1px solid var(--border);background:var(--surface-2);color:var(--text);
-                       font-family:var(--font);opacity:\${currentPage === 1 ? '.4' : '1'};">‹ Prev</button>\`;
-
-            // Page numbers — show max 5 around current
-            const range = [];
-            for (let p = 1; p <= totalPages; p++) {
-                if (p === 1 || p === totalPages || (p >= currentPage - 2 && p <= currentPage + 2)) {
-                    range.push(p);
-                }
-            }
-
-            let prev = null;
-            for (const p of range) {
-                if (prev !== null && p - prev > 1) {
-                    html += \`<button disabled style="padding:5px 8px;border-radius:6px;font-size:13px;
-                        border:1px solid var(--border);background:var(--surface-2);color:var(--text-muted);
-                        font-family:var(--font);">…</button>\`;
-                }
-                const active = p === currentPage;
-                html += \`<button onclick="goPage(\${p})"
-                    style="padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;
-                           border:1px solid \${active ? 'var(--accent)' : 'var(--border)'};
-                           background:\${active ? 'var(--accent)' : 'var(--surface-2)'};
-                           color:\${active ? '#fff' : 'var(--text)'};font-family:var(--font);">\${p}</button>\`;
-                prev = p;
-            }
-
-            // Next
-            html += \`<button onclick="goPage(\${currentPage + 1})" \${currentPage === totalPages ? 'disabled' : ''}
-                style="padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;
-                       border:1px solid var(--border);background:var(--surface-2);color:var(--text);
-                       font-family:var(--font);opacity:\${currentPage === totalPages ? '.4' : '1'};">Next ›</button>\`;
-
-            btns.innerHTML = html;
-        }
-
-        function goPage(p) {
-            const totalPages = Math.ceil(filtered.length / perPage);
-            if (p < 1 || p > totalPages) return;
-            currentPage = p;
-            render();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        // Init
-        render();
-        <\/script>
+        <script id="dashData" type="application/json">${rowsJson}</script>
     `;
+
+    // ── Inline script — kept separate from template literal to avoid </script> parsing issue ──
+    const script = `
+<script>
+(function() {
+    var ALL_ROWS  = JSON.parse(document.getElementById('dashData').textContent);
+    var filtered  = ALL_ROWS.slice();
+    var curPage   = 1;
+    var perPage   = 25;
+    var sortKey   = null;
+    var sortDir   = 1;
+
+    function fmtSize(b) {
+        if (!b) return '0 B';
+        var u = ['B','KB','MB','GB'], i = Math.floor(Math.log(b) / Math.log(1024));
+        return (b / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + u[i];
+    }
+
+    window.applyFilter = function() {
+        var q = document.getElementById('searchInput').value.toLowerCase().trim();
+        filtered = ALL_ROWS.filter(function(r) { return !q || r.sapId.toLowerCase().indexOf(q) !== -1; });
+        curPage = 1;
+        render();
+    };
+
+    window.setPerPage = function(v) {
+        perPage = Number(v);
+        curPage = 1;
+        render();
+    };
+
+    window.sortBy = function(key) {
+        if (sortKey === key) { sortDir *= -1; } else { sortKey = key; sortDir = 1; }
+        ['sapId','fileCount','totalSize'].forEach(function(k) {
+            var el = document.getElementById('sort-' + k);
+            if (el) el.textContent = k === sortKey ? (sortDir === 1 ? ' ↑' : ' ↓') : ' ↕';
+        });
+        filtered.sort(function(a, b) {
+            var av = a[key], bv = b[key];
+            return (typeof av === 'string' ? av.localeCompare(bv) : av - bv) * sortDir;
+        });
+        curPage = 1;
+        render();
+    };
+
+    window.goPage = function(p) {
+        var tp = Math.ceil(filtered.length / perPage);
+        if (p < 1 || p > tp) return;
+        curPage = p;
+        render();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    function render() {
+        var total = filtered.length;
+        var tp    = Math.max(1, Math.ceil(total / perPage));
+        curPage   = Math.min(curPage, tp);
+        var start = (curPage - 1) * perPage;
+        var page  = filtered.slice(start, start + perPage);
+
+        var tbody = document.getElementById('tableBody');
+        if (!tbody) return;
+
+        if (page.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted);">No accounts found</td></tr>';
+        } else {
+            tbody.innerHTML = page.map(function(a) {
+                var badge = a.fileCount > 0
+                    ? '<span class="badge badge-ok">' + a.fileCount + ' files</span>'
+                    : '<span class="badge badge-empty">Empty</span>';
+                return '<tr>'
+                    + '<td><a href="' + a.href + '" style="font-weight:600;">' + a.sapId + '</a></td>'
+                    + '<td>' + badge + '</td>'
+                    + '<td class="text-muted text-sm">' + fmtSize(a.totalSize) + '</td>'
+                    + '<td><a href="' + a.href + '" class="btn btn-secondary" style="padding:6px 14px;font-size:12px;">Browse Files &rarr;</a></td>'
+                    + '</tr>';
+            }).join('');
+        }
+
+        var from = total === 0 ? 0 : start + 1;
+        var to   = Math.min(start + perPage, total);
+        document.getElementById('pageInfo').textContent = 'Showing ' + from + '–' + to + ' of ' + total + ' accounts';
+
+        var html = '';
+        var btnBase = 'padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit;';
+
+        html += '<button onclick="goPage(' + (curPage - 1) + ')" ' + (curPage === 1 ? 'disabled' : '') + ' style="' + btnBase + 'border:1px solid var(--border);background:var(--surface-2);color:var(--text);opacity:' + (curPage === 1 ? '.4' : '1') + ';">&#8249; Prev</button>';
+
+        var range = [];
+        for (var p = 1; p <= tp; p++) {
+            if (p === 1 || p === tp || (p >= curPage - 2 && p <= curPage + 2)) range.push(p);
+        }
+        var prev = null;
+        range.forEach(function(p) {
+            if (prev !== null && p - prev > 1) {
+                html += '<button disabled style="' + btnBase + 'border:1px solid var(--border);background:var(--surface-2);color:var(--text-muted);">…</button>';
+            }
+            var active = p === curPage;
+            html += '<button onclick="goPage(' + p + ')" style="' + btnBase + 'border:1px solid ' + (active ? 'var(--accent)' : 'var(--border)') + ';background:' + (active ? 'var(--accent)' : 'var(--surface-2)') + ';color:' + (active ? '#fff' : 'var(--text)') + ';">' + p + '</button>';
+            prev = p;
+        });
+
+        html += '<button onclick="goPage(' + (curPage + 1) + ')" ' + (curPage === tp ? 'disabled' : '') + ' style="' + btnBase + 'border:1px solid var(--border);background:var(--surface-2);color:var(--text);opacity:' + (curPage === tp ? '.4' : '1') + ';">Next &#8250;</button>';
+
+        document.getElementById('pageBtns').innerHTML = html;
+    }
+
+    render();
+})();
+</script>`;
 
     return layout('Accounts', [
         { label: 'Home', href: '/pages/accounts' },
         { label: 'Accounts' },
-    ], body);
+    ], body + script);
 }
-
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE: Account Detail — Browse files for a specific account
 // ════════════════════════════════════════════════════════════════════════════
