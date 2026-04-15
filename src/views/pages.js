@@ -259,16 +259,103 @@ function layout(title, breadcrumbs, bodyHtml) {
 //  PAGE: Dashboard — List all downloaded accounts
 // ════════════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════════════
+//  REPLACE the existing renderDashboard function in src/views/pages.js
+// ════════════════════════════════════════════════════════════════════════════
+
 export function renderDashboard(accounts = []) {
     const totalFiles = accounts.reduce((s, a) => s + a.fileCount, 0);
     const totalSize  = accounts.reduce((s, a) => s + a.totalSize, 0);
 
-    let body = `
-        <h1 style="font-size: 24px; margin-bottom: 8px;">Accounts — File Manager</h1>
-        <p class="text-muted text-sm" style="margin-bottom: 28px;">
+    function esc(s) {
+        return String(s || '')
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Pre-build all rows as JSON for JS to consume
+    const rowsJson = JSON.stringify(accounts.map(a => ({
+        sapId:     a.sapId,
+        fileCount: a.fileCount,
+        totalSize: a.totalSize,
+        href:      `/pages/accounts/${encodeURIComponent(a.sapId)}`,
+    })));
+
+    const emptyState = accounts.length === 0 ? `
+        <div class="empty">
+            <div class="empty-icon">📂</div>
+            <div class="empty-title">No accounts synced yet</div>
+            <p class="text-sm">Use <code class="mono">POST /api/v1/accounts/sync</code> to sync approved accounts.</p>
+        </div>` : '';
+
+    const tableHtml = accounts.length > 0 ? `
+        <div class="card" style="padding:0;overflow:hidden;">
+
+            <!-- Toolbar -->
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:13px;color:var(--text-muted);">Show</span>
+                    <select id="perPageSel" onchange="setPerPage(this.value)"
+                        style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
+                               padding:5px 10px;font-size:13px;color:var(--text);cursor:pointer;outline:none;">
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                    <span style="font-size:13px;color:var(--text-muted);">entries</span>
+                </div>
+                <div style="position:relative;">
+                    <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);"
+                         width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input id="searchInput" type="text" placeholder="Search SAP ID…"
+                        oninput="applyFilter()"
+                        style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
+                               padding:6px 12px 6px 34px;font-size:13px;color:var(--text);
+                               font-family:var(--font);outline:none;width:220px;transition:border-color .2s;"
+                        onfocus="this.style.borderColor='var(--accent)'"
+                        onblur="this.style.borderColor='var(--border)'"
+                    />
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="table-wrap">
+                <table id="accountTable">
+                    <thead>
+                        <tr>
+                            <th style="cursor:pointer;" onclick="sortBy('sapId')">
+                                SAP ID <span id="sort-sapId">↕</span>
+                            </th>
+                            <th style="cursor:pointer;" onclick="sortBy('fileCount')">
+                                Files <span id="sort-fileCount">↕</span>
+                            </th>
+                            <th style="cursor:pointer;" onclick="sortBy('totalSize')">
+                                Size <span id="sort-totalSize">↕</span>
+                            </th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+
+            <!-- Pagination footer -->
+            <div style="display:flex;align-items:center;justify-content:space-between;
+                        padding:12px 20px;border-top:1px solid var(--border);flex-wrap:wrap;gap:8px;">
+                <div id="pageInfo" style="font-size:13px;color:var(--text-muted);"></div>
+                <div id="pageBtns" style="display:flex;gap:6px;"></div>
+            </div>
+        </div>` : '';
+
+    const body = `
+        <h1 style="font-size:24px;margin-bottom:8px;">Accounts — File Manager</h1>
+        <p class="text-muted text-sm" style="margin-bottom:28px;">
             Browse and download files synced from Zoho CRM File Upload fields (Distributor layout).
         </p>
-
         <div class="stats">
             <div class="stat-card">
                 <div class="stat-value">${accounts.length}</div>
@@ -283,64 +370,159 @@ export function renderDashboard(accounts = []) {
                 <div class="stat-label">Total Size</div>
             </div>
         </div>
-    `;
+        ${emptyState}
+        ${tableHtml}
 
-    if (accounts.length === 0) {
-        body += `
-            <div class="empty">
-                <div class="empty-icon">📂</div>
-                <div class="empty-title">No accounts synced yet</div>
-                <p class="text-sm">Use <code class="mono">POST /api/v1/accounts/sync</code> to sync approved accounts.</p>
-            </div>
-        `;
-    } else {
-        body += `
-            <div class="card" style="padding: 0; overflow: hidden;">
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>SAP ID</th>
-                                <th>Files</th>
-                                <th>Size</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${accounts.map(a => `
-                                <tr>
-                                    <td>
-                                        <a href="/pages/accounts/${escapeHtml(a.sapId)}" style="font-weight: 600;">
-                                            ${escapeHtml(a.sapId)}
-                                        </a>
-                                    </td>
-                                    <td>
-                                        ${a.fileCount > 0
-                                            ? `<span class="badge badge-ok">${a.fileCount} files</span>`
-                                            : `<span class="badge badge-empty">Empty</span>`
-                                        }
-                                    </td>
-                                    <td class="text-muted text-sm">${formatSize(a.totalSize)}</td>
-                                    <td>
-                                        <a href="/pages/accounts/${escapeHtml(a.sapId)}" class="btn btn-secondary" style="padding: 6px 14px; font-size: 12px;">
-                                            Browse Files →
-                                        </a>
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-    }
+        <script>
+        const ALL_ROWS  = ${rowsJson};
+        let filtered    = [...ALL_ROWS];
+        let currentPage = 1;
+        let perPage     = 25;
+        let sortKey     = null;
+        let sortDir     = 1;  // 1=asc, -1=desc
+
+        function formatSize(bytes) {
+            if (!bytes) return '0 B';
+            const u = ['B','KB','MB','GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + u[i];
+        }
+
+        function applyFilter() {
+            const q = document.getElementById('searchInput').value.toLowerCase().trim();
+            filtered = ALL_ROWS.filter(r => !q || r.sapId.toLowerCase().includes(q));
+            currentPage = 1;
+            render();
+        }
+
+        function setPerPage(val) {
+            perPage = Number(val);
+            currentPage = 1;
+            render();
+        }
+
+        function sortBy(key) {
+            if (sortKey === key) { sortDir *= -1; }
+            else { sortKey = key; sortDir = 1; }
+            // Update sort indicators
+            ['sapId','fileCount','totalSize'].forEach(k => {
+                const el = document.getElementById('sort-' + k);
+                if (el) el.textContent = k === sortKey ? (sortDir === 1 ? '↑' : '↓') : '↕';
+            });
+            filtered.sort((a, b) => {
+                const av = a[key], bv = b[key];
+                if (typeof av === 'string') return av.localeCompare(bv) * sortDir;
+                return (av - bv) * sortDir;
+            });
+            currentPage = 1;
+            render();
+        }
+
+        function render() {
+            const total     = filtered.length;
+            const totalPages= Math.max(1, Math.ceil(total / perPage));
+            currentPage     = Math.min(currentPage, totalPages);
+
+            const start = (currentPage - 1) * perPage;
+            const page  = filtered.slice(start, start + perPage);
+
+            // ── Table rows ──────────────────────────────────────────────
+            const tbody = document.getElementById('tableBody');
+            if (page.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted);">No accounts found</td></tr>';
+            } else {
+                tbody.innerHTML = page.map(a => \`
+                    <tr>
+                        <td>
+                            <a href="\${a.href}" style="font-weight:600;">\${a.sapId}</a>
+                        </td>
+                        <td>
+                            \${a.fileCount > 0
+                                ? '<span class="badge badge-ok">' + a.fileCount + ' files</span>'
+                                : '<span class="badge badge-empty">Empty</span>'}
+                        </td>
+                        <td class="text-muted text-sm">\${formatSize(a.totalSize)}</td>
+                        <td>
+                            <a href="\${a.href}" class="btn btn-secondary" style="padding:6px 14px;font-size:12px;">
+                                Browse Files →
+                            </a>
+                        </td>
+                    </tr>
+                \`).join('');
+            }
+
+            // ── Page info ────────────────────────────────────────────────
+            const from = total === 0 ? 0 : start + 1;
+            const to   = Math.min(start + perPage, total);
+            document.getElementById('pageInfo').textContent =
+                \`Showing \${from}–\${to} of \${total} accounts\`;
+
+            // ── Pagination buttons ────────────────────────────────────────
+            const btns = document.getElementById('pageBtns');
+            const btnStyle = (active) =>
+                \`style="padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid var(--border);
+                  background:\${active ? 'var(--accent)' : 'var(--surface-2)'};
+                  color:\${active ? '#fff' : 'var(--text)'};font-family:var(--font);\`+ '"';
+
+            let html = '';
+
+            // Prev
+            html += \`<button onclick="goPage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''}
+                style="padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;
+                       border:1px solid var(--border);background:var(--surface-2);color:var(--text);
+                       font-family:var(--font);opacity:\${currentPage === 1 ? '.4' : '1'};">‹ Prev</button>\`;
+
+            // Page numbers — show max 5 around current
+            const range = [];
+            for (let p = 1; p <= totalPages; p++) {
+                if (p === 1 || p === totalPages || (p >= currentPage - 2 && p <= currentPage + 2)) {
+                    range.push(p);
+                }
+            }
+
+            let prev = null;
+            for (const p of range) {
+                if (prev !== null && p - prev > 1) {
+                    html += \`<button disabled style="padding:5px 8px;border-radius:6px;font-size:13px;
+                        border:1px solid var(--border);background:var(--surface-2);color:var(--text-muted);
+                        font-family:var(--font);">…</button>\`;
+                }
+                const active = p === currentPage;
+                html += \`<button onclick="goPage(\${p})"
+                    style="padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;
+                           border:1px solid \${active ? 'var(--accent)' : 'var(--border)'};
+                           background:\${active ? 'var(--accent)' : 'var(--surface-2)'};
+                           color:\${active ? '#fff' : 'var(--text)'};font-family:var(--font);">\${p}</button>\`;
+                prev = p;
+            }
+
+            // Next
+            html += \`<button onclick="goPage(\${currentPage + 1})" \${currentPage === totalPages ? 'disabled' : ''}
+                style="padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;
+                       border:1px solid var(--border);background:var(--surface-2);color:var(--text);
+                       font-family:var(--font);opacity:\${currentPage === totalPages ? '.4' : '1'};">Next ›</button>\`;
+
+            btns.innerHTML = html;
+        }
+
+        function goPage(p) {
+            const totalPages = Math.ceil(filtered.length / perPage);
+            if (p < 1 || p > totalPages) return;
+            currentPage = p;
+            render();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Init
+        render();
+        <\/script>
+    `;
 
     return layout('Accounts', [
         { label: 'Home', href: '/pages/accounts' },
         { label: 'Accounts' },
     ], body);
 }
-
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE: Account Detail — Browse files for a specific account
