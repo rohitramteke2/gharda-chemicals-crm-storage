@@ -30,9 +30,14 @@ export function createApp() {
         contentSecurityPolicy: {
             directives: {
                 ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-                'style-src': ["'self'", "'unsafe-inline'"],
+                'style-src':     ["'self'", "'unsafe-inline'"],
+                // Allow Zoho CRM to embed pages in iframe
+                'frame-ancestors': ["'self'", "https://crm.zoho.in", "https://*.zoho.in", "https://*.zoho.com"],
             },
         },
+        // Also disable the legacy X-Frame-Options header
+        // (helmet sets it to SAMEORIGIN by default which also blocks iframes)
+        frameguard: false,
     }));
     // note: blocks everything in pt
     // app.use(cors({ origin: env.isProd() ? [] : '*', methods: ['GET', 'POST'] }));
@@ -51,7 +56,7 @@ export function createApp() {
             // Zoho production domains
             if (origin.endsWith('.zoho.in') || origin.endsWith('.zoho.com')) return callback(null, true);
             // Zoho CRM widget production host (*.zappsusercontent.in)
-            
+
             if (origin.endsWith('.zappsusercontent.in')) return callback(null, true);
             // Zoho widget local dev server (e.g. https://127.0.0.1:5000)
             if (origin.startsWith('https://127.0.0.1') || origin.startsWith('http://127.0.0.1')) return callback(null, true);
