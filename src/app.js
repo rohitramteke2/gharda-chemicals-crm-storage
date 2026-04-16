@@ -33,7 +33,23 @@ export function createApp() {
             },
         },
     }));
-    app.use(cors({ origin: env.isProd() ? [] : '*', methods: ['GET', 'POST'] }));
+    // note: blocks everything in pt
+    // app.use(cors({ origin: env.isProd() ? [] : '*', methods: ['GET', 'POST'] }));
+
+    app.options('*', cors());   // ← handle preflight first
+    app.use(cors({              // ← then actual CORS
+        origin: (origin, callback) => {
+            if (!origin) return callback(null, true);
+            if (origin.endsWith('.zoho.in') || origin.endsWith('.zoho.com')) return callback(null, true);
+            if (env.isDev()) return callback(null, true);
+            logger.warn('CORS blocked', { origin });
+            callback(new Error('CORS: origin not allowed'));
+        },
+        methods:        ['GET', 'POST', 'PATCH', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization'],
+        credentials:    true,
+    }));
+
     app.use(compression());
 
     // ── Body parsing ─────────────────────────────────────────────────────────
