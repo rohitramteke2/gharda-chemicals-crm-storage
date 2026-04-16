@@ -50,6 +50,9 @@ export function createApp() {
             if (!origin) return callback(null, true);
             // Zoho production domains
             if (origin.endsWith('.zoho.in') || origin.endsWith('.zoho.com')) return callback(null, true);
+            // Zoho CRM widget production host (*.zappsusercontent.in)
+            
+            if (origin.endsWith('.zappsusercontent.in')) return callback(null, true);
             // Zoho widget local dev server (e.g. https://127.0.0.1:5000)
             if (origin.startsWith('https://127.0.0.1') || origin.startsWith('http://127.0.0.1')) return callback(null, true);
             // Zoho widget CDN
