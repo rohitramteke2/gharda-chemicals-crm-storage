@@ -17,6 +17,7 @@ import auth from './services/ZohoAuthService.js';
 import accountRoutes from './routes/accounts.js';
 import farmerRoutes from './routes/farmers.js';
 import pageRoutes from './routes/pages.js';
+import logRoutes   from './routes/logs.js';
 import { renderError } from './views/pages.js';
 
 export function createApp() {
@@ -36,19 +37,38 @@ export function createApp() {
     // note: blocks everything in pt
     // app.use(cors({ origin: env.isProd() ? [] : '*', methods: ['GET', 'POST'] }));
 
-    app.options('*', cors());   // ← handle preflight first
-    app.use(cors({              // ← then actual CORS
+    // ── CORS ─────────────────────────────────────────────────────────────────
+    // Allowed origins:
+    //   - *.zoho.in / *.zoho.com   → Zoho CRM / Creator / widgets (production)
+    //   - 127.0.0.1:*              → Zoho CRM widget local dev server (runs on port 5000)
+    //   - *.zwidgets.com           → Zoho widget CDN in production
+    //   - localhost:*              → local development
+    //   - no origin                → Postman, Deluge invokeurl, server-to-server
+    const corsOptions = {
         origin: (origin, callback) => {
+            // No origin = Postman / server-to-server / Deluge — always allow
             if (!origin) return callback(null, true);
+            // Zoho production domains
             if (origin.endsWith('.zoho.in') || origin.endsWith('.zoho.com')) return callback(null, true);
+            // Zoho widget local dev server (e.g. https://127.0.0.1:5000)
+            if (origin.startsWith('https://127.0.0.1') || origin.startsWith('http://127.0.0.1')) return callback(null, true);
+            // Zoho widget CDN
+            if (origin.endsWith('.zwidgets.com')) return callback(null, true);
+            // Localhost dev
+            if (origin.startsWith('http://localhost') || origin.startsWith('https://localhost')) return callback(null, true);
+            // Dev mode — allow everything
             if (env.isDev()) return callback(null, true);
+
             logger.warn('CORS blocked', { origin });
             callback(new Error('CORS: origin not allowed'));
         },
         methods:        ['GET', 'POST', 'PATCH', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization'],
         credentials:    true,
-    }));
+    };
+
+    app.options('*', cors(corsOptions));  // handle preflight OPTIONS first
+    app.use(cors(corsOptions));           // apply CORS to all routes
 
     app.use(compression());
 
@@ -156,6 +176,9 @@ export function createApp() {
 
     // Mount all page routes
     app.use('/pages', pageRoutes);
+
+    // ── Logs dashboard — API key protected ──────────────────────────────────
+    app.use('/logs', logRoutes);
 
     // ════════════════════════════════════════════════════════════════════════
     //  PROTECTED ROUTES (rate limit + API key)
