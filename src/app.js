@@ -32,7 +32,7 @@ export function createApp() {
                 ...helmet.contentSecurityPolicy.getDefaultDirectives(),
                 'style-src':     ["'self'", "'unsafe-inline'"],
                 // Allow Zoho CRM to embed pages in iframe
-                'frame-ancestors': ["'self'", "https://crm.zoho.in", "https://*.zoho.in", "https://*.zoho.com"],
+                'frame-ancestors': ["*"],
             },
         },
         // Also disable the legacy X-Frame-Options header
