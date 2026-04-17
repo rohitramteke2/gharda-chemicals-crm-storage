@@ -266,30 +266,39 @@ router.get('/storage', async (req, res) => {
         return res.status(403).send('Access denied — link expired or invalid.');
     }
 
-    // Decode filePath — browser may double-encode spaces (%20 → %2520)
-    // Decode once to handle %2520 → %20 → space
+    // ── Decode filePath ─────────────────────────────────────────────────────
+    // Express decodes query params once already.
+    // filePath = /storage/Accounts/SAP/field/Screenshot%202025-06-24%20132348.png
+    // We need to decode %20 → space to match actual filename on disk.
     let decodedPath = filePath;
-    try { decodedPath = decodeURIComponent(filePath); } catch { decodedPath = filePath; }
+    try {
+        // Decode %20 → space etc. to get actual filename
+        decodedPath = decodeURIComponent(filePath);
+    } catch {
+        decodedPath = filePath;
+    }
 
-    // Strip /storage/ prefix — ATTACHMENT_DIR is the storage root
-    const relative    = decodedPath.replace(/^\/storage\//, '').replace(/^storage\//, '');
+    // Strip leading /storage/ or storage/
+    const relative = decodedPath
+        .replace(/^[\/\\]storage[\/\\]/, '')   // /storage/ or \storage\
+        .replace(/\//g, path.sep)               // normalize / → \ on Windows
+        .replace(/\\/g, path.sep);            // normalize \\ → \ on Windows
+
     const storageRoot = path.resolve(env.ATTACHMENT_DIR);
+    const absPath     = path.resolve(path.join(storageRoot, relative));
 
-    // Use path.join which handles Windows backslashes correctly
-    const absPath     = path.join(storageRoot, relative);
-
-    // Path traversal guard — normalize both to compare safely on Windows
-    const normalRoot = path.resolve(storageRoot);
-    const normalAbs  = path.resolve(absPath);
-    if (!normalAbs.startsWith(normalRoot)) {
+    // Path traversal guard
+    if (!absPath.startsWith(storageRoot + path.sep) && absPath !== storageRoot) {
+        logger.warn('Pages: storage path traversal attempt', { filePath, absPath });
         return res.status(403).send('Access denied — invalid path.');
     }
 
-    if (!await fse.pathExists(normalAbs)) {
+    if (!await fse.pathExists(absPath)) {
+        logger.warn('Pages: storage file not found', { absPath });
         return res.status(404).send('File not found.');
     }
 
-    res.sendFile(normalAbs);
+    res.sendFile(absPath);
 });
 
 // ── Catch-all 404 for /pages/* ──────────────────────────────────────────────
