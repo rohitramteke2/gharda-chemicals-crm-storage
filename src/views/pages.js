@@ -1512,7 +1512,7 @@ export function renderPaymentInvalid() {
 //    res.send(renderDocsViewer(recordId, folderName, data));
 //
 //  Export:
-//    export function renderDocsViewer(recordId, folderName, data) { ... }
+//    export function renderDocsViewer(recordId, folderName, data, signFileUrl) { ... }
 // ════════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1520,7 +1520,7 @@ export function renderPaymentInvalid() {
 //  in src/views/pages.js with these two functions.
 // ════════════════════════════════════════════════════════════════════════════
 
-export function renderDocsViewer(recordId, folderName, data) {
+export function renderDocsViewer(recordId, folderName, data, signFileUrl) {
 
     if (!data || data.totalFiles === 0) {
         return renderDocsEmpty(folderName);
@@ -1608,7 +1608,8 @@ export function renderDocsViewer(recordId, folderName, data) {
         const ft      = fileType(file.name);
         const ext     = (file.name || '').split('.').pop().toUpperCase().slice(0, 4);
         const isImage = ft.label === 'IMG';
-        const absUrl  = BASE + file.url;
+        // Sign the file URL — expires with the page token
+        const absUrl  = signFileUrl ? signFileUrl(file.url) : (BASE + file.url);
 
         return `
         <tr class="file-row" data-cat="${esc(file.fieldLabel || '')}">
@@ -1927,456 +1928,427 @@ function renderDocsEmpty(folderName) {
     </div>
 </body>
 </html>`;
-}
+}// ════════════════════════════════════════════════════════════════════════════
+//  PAGE: Logs Dashboard
+//
+//  GET /logs?key=YOUR_API_KEY
+//
+//  Features:
+//   - Analytics: total requests, errors, error rate, last activity, log volume
+//   - Daily bar chart (requests vs errors)
+//   - Level breakdown, top endpoints, recent errors
+//   - Log viewer with type / level / day / search filters
+//   - Manual refresh + Auto-refresh toggle (10s countdown)
 // ════════════════════════════════════════════════════════════════════════════
-//  LOGS DASHBOARD
-// ════════════════════════════════════════════════════════════════════════════
 
-export function renderLogsPage({ analytics, entries, days, apiKey }) {
-    const { totals, daily, topEndpoints, recentErrors, lastActivity } = analytics;
-    const errorRate = totals.requests > 0
-        ? ((totals.errors / totals.requests) * 100).toFixed(1)
-        : '0.0';
-
-    // ── Daily chart bars ────────────────────────────────────────────────────
-    const maxReq  = Math.max(...daily.map(d => d.requests), 1);
-    const chartBars = daily.map(d => {
-        const reqPct = Math.round((d.requests / maxReq) * 100);
-        const errPct = d.requests > 0 ? Math.round((d.errors / d.requests) * 100) : 0;
-        return `<div class="bar-group">
-            <div class="bar-wrap">
-                <div class="bar req" style="height:${reqPct}%" title="${d.requests} requests"></div>
-                <div class="bar err" style="height:${errPct}%" title="${d.errors} errors"></div>
-            </div>
-            <div class="bar-label">${d.date.slice(5)}</div>
-        </div>`;
-    }).join('');
-
-    // ── Top endpoints ────────────────────────────────────────────────────────
-    const maxEp = topEndpoints[0]?.count || 1;
-    const epRows = topEndpoints.map(e => {
-        const pct = Math.round((e.count / maxEp) * 100);
-        return `<div class="ep-row">
-            <div class="ep-path">${e.path}</div>
-            <div class="ep-bar-wrap"><div class="ep-bar" style="width:${pct}%"></div></div>
-            <div class="ep-count">${e.count}</div>
-        </div>`;
-    }).join('') || '<div class="empty-row">No HTTP logs found</div>';
-
-    // ── Recent errors ────────────────────────────────────────────────────────
-    const errRows = recentErrors.map(e => {
-        const ts  = e.timestamp || '';
-        const msg = e.message || '';
-        const extra = e.error || e.stack || '';
-        return `<div class="err-row">
-            <span class="err-ts">${ts}</span>
-            <span class="err-msg">${escH(msg)}${extra ? ` — <em>${escH(String(extra).slice(0, 120))}</em>` : ''}</span>
-        </div>`;
-    }).join('') || '<div class="empty-row">No errors 🎉</div>';
-
-    // ── Log entries ──────────────────────────────────────────────────────────
-    const entryRows = entries.slice(0, 300).map(e => {
-        const lvl = (e.level || 'info').toLowerCase();
-        const msg = e.message || '';
-        const ts  = e.timestamp || '';
-        const { level, message, timestamp, ...rest } = e;
-        const extra = Object.keys(rest).length ? JSON.stringify(rest) : '';
-        return `<tr class="log-row" data-level="${lvl}" data-msg="${escH(msg).toLowerCase()}">
-            <td class="log-ts">${ts}</td>
-            <td><span class="lvl lvl-${lvl}">${lvl}</span></td>
-            <td class="log-msg">${escH(msg)}${extra ? `<span class="log-extra"> ${escH(extra)}</span>` : ''}</td>
-        </tr>`;
-    }).join('');
-
-    const dataUrl = `/logs/data?key=${encodeURIComponent(apiKey)}&days=${days}`;
-
+export function renderLogsPage(apiKey = '') {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Logs — Gharda CRM API</title>
-    <style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        :root{
-            --bg:#0f1117;--surface:#1a1d27;--surface2:#242836;--border:#2e3346;
-            --text:#e4e6ef;--muted:#8b8fa3;--accent:#4f8fff;--green:#34d399;
-            --red:#f87171;--orange:#fbbf24;--yellow:#facc15;--radius:10px;
-            --font:'Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;
-            --mono:'Cascadia Code','Fira Code',Consolas,monospace;
-        }
-        body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logs — Gharda CRM API</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Syne:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+    --bg:#0c0d0f;--surface:#141518;--s2:#1c1e22;--s3:#232629;
+    --border:#2a2d33;--border2:#363a42;
+    --text:#e8eaed;--muted:#6b7280;--dim:#9ca3af;
+    --green:#22c55e;--green-d:rgba(34,197,94,.12);
+    --red:#ef4444;--red-d:rgba(239,68,68,.12);
+    --yellow:#eab308;--yellow-d:rgba(234,179,8,.12);
+    --blue:#3b82f6;--blue-d:rgba(59,130,246,.12);
+    --cyan:#06b6d4;--orange:#f97316;
+    --mono:'IBM Plex Mono',monospace;
+    --sans:'Syne',sans-serif;
+}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 
-        /* Header */
-        .header{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 0}
-        .header-inner{max-width:1280px;margin:0 auto;padding:0 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
-        .logo{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;color:var(--text)}
-        .logo-icon{width:30px;height:30px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;color:#fff}
-        .nav{display:flex;gap:18px;font-size:13px}
-        .nav a{color:var(--muted);text-decoration:none}
-        .nav a:hover,.nav a.active{color:var(--accent)}
-        .header-actions{display:flex;align-items:center;gap:10px}
+/* topbar */
+.tb{position:sticky;top:0;z-index:100;background:rgba(12,13,15,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 24px;height:54px;display:flex;align-items:center;justify-content:space-between}
+.tb-l{display:flex;align-items:center;gap:14px}
+.pill{background:var(--green);color:#000;font-family:var(--mono);font-size:10px;font-weight:500;padding:3px 9px;border-radius:3px;letter-spacing:.5px}
+.tb-title{font-size:13px;font-weight:600;letter-spacing:.3px}
+.tb-r{display:flex;align-items:center;gap:10px}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pd 2s ease infinite}
+@keyframes pd{0%,100%{opacity:1}50%{opacity:.35}}
+.stxt{font-size:11px;color:var(--muted);font-family:var(--mono)}
 
-        /* Layout */
-        .container{max-width:1280px;margin:0 auto;padding:28px 24px}
+/* buttons */
+.btn{font-family:var(--mono);font-size:11px;font-weight:500;padding:5px 13px;border-radius:4px;border:1px solid var(--border2);background:var(--s2);color:var(--dim);cursor:pointer;transition:all .15s;letter-spacing:.3px}
+.btn:hover{border-color:var(--muted);color:var(--text)}
+.btn.on{background:var(--green-d);border-color:var(--green);color:var(--green)}
+#cd{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:26px;text-align:center}
 
-        /* Stat cards */
-        .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:28px}
-        .stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px}
-        .stat-val{font-size:28px;font-weight:700;line-height:1}
-        .stat-lbl{font-size:12px;color:var(--muted);margin-top:5px}
-        .stat.accent .stat-val{color:var(--accent)}
-        .stat.green  .stat-val{color:var(--green)}
-        .stat.red    .stat-val{color:var(--red)}
-        .stat.orange .stat-val{color:var(--orange)}
-        .stat.yellow .stat-val{color:var(--yellow)}
+/* layout */
+.main{padding:24px;max-width:1380px;margin:0 auto}
+.sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.st{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);font-family:var(--mono)}
 
-        /* Grid */
-        .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
-        @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+/* stat cards */
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:11px;margin-bottom:24px}
+.sc{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:16px 18px;position:relative;overflow:hidden;transition:border-color .2s}
+.sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--ac,var(--blue));opacity:.55}
+.sc:hover{border-color:var(--border2)}
+.sl{font-size:10px;font-family:var(--mono);color:var(--muted);letter-spacing:.5px;margin-bottom:8px}
+.sv{font-size:26px;font-weight:700;line-height:1;font-family:var(--mono)}
+.ss{font-size:10px;color:var(--muted);margin-top:5px;font-family:var(--mono)}
 
-        /* Panel */
-        .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
-        .panel-head{padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;justify-content:space-between}
-        .panel-body{padding:18px}
+/* two col */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px}
+@media(max-width:860px){.two{grid-template-columns:1fr}}
 
-        /* Bar chart */
-        .chart{display:flex;align-items:flex-end;gap:4px;height:120px;padding:0 4px}
-        .bar-group{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:0}
-        .bar-wrap{display:flex;align-items:flex-end;gap:2px;height:90px;width:100%}
-        .bar{flex:1;border-radius:3px 3px 0 0;min-height:2px;transition:height .3s}
-        .bar.req{background:var(--accent);opacity:.85}
-        .bar.err{background:var(--red);opacity:.9}
-        .bar-label{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;text-align:center}
-        .chart-legend{display:flex;gap:12px;padding:8px 18px 14px;font-size:11px;color:var(--muted)}
-        .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle}
+/* panel */
+.pn{background:var(--surface);border:1px solid var(--border);border-radius:7px;overflow:hidden}
+.ph{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.pt{font-size:11px;font-family:var(--mono);color:var(--dim);letter-spacing:.5px}
 
-        /* Endpoints */
-        .ep-row{display:grid;grid-template-columns:1fr 120px 50px;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
-        .ep-row:last-child{border-bottom:none}
-        .ep-path{font-family:var(--mono);font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .ep-bar-wrap{height:6px;background:var(--surface2);border-radius:3px;overflow:hidden}
-        .ep-bar{height:100%;background:var(--accent);border-radius:3px;transition:width .3s}
-        .ep-count{font-size:12px;color:var(--muted);text-align:right;font-weight:600}
+/* chart */
+.cw{padding:16px;display:flex;align-items:flex-end;gap:5px;height:110px}
+.cbg{display:flex;flex-direction:column;align-items:center;flex:1;gap:2px}
+.cb{width:100%;border-radius:2px 2px 0 0;min-height:2px;transition:height .4s ease;cursor:pointer}
+.cb.rq{background:var(--blue);opacity:.65}
+.cb.er{background:var(--red);opacity:.75}
+.cb:hover{opacity:1!important}
+.cl{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:3px}
 
-        /* Recent errors */
-        .err-row{padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:10px;align-items:baseline}
-        .err-row:last-child{border-bottom:none}
-        .err-ts{color:var(--muted);white-space:nowrap;font-family:var(--mono);font-size:11px;flex-shrink:0}
-        .err-msg{color:var(--red);line-height:1.4;word-break:break-word}
-        .err-msg em{color:var(--muted);font-style:normal}
+/* url rows */
+.ur{display:flex;align-items:center;padding:9px 16px;border-bottom:1px solid var(--border);gap:10px;transition:background .1s}
+.ur:last-child{border-bottom:none}
+.ur:hover{background:var(--s2)}
+.up{font-family:var(--mono);font-size:11px;color:var(--cyan);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}
+.ub{height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.ubf{height:100%;background:var(--blue);border-radius:2px;transition:width .5s ease}
+.uc{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:36px;text-align:right}
 
-        /* Log table */
-        .log-toolbar{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-        .log-search{flex:1;min-width:160px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--text);font-size:13px;outline:none}
-        .log-search:focus{border-color:var(--accent)}
-        .filter-btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:12px;cursor:pointer;transition:.15s}
-        .filter-btn:hover,.filter-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
-        .filter-btn.err-f.active{background:var(--red);border-color:var(--red)}
-        .filter-btn.warn-f.active{background:var(--orange);border-color:var(--orange)}
-        .filter-btn.http-f.active{background:var(--green);border-color:var(--green)}
-        .log-table{width:100%;border-collapse:collapse;font-size:12px}
-        .log-table th{text-align:left;padding:8px 12px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--surface2)}
-        .log-table td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:top}
-        .log-row:last-child td{border-bottom:none}
-        .log-ts{font-family:var(--mono);color:var(--muted);white-space:nowrap;font-size:11px}
-        .log-msg{color:var(--text);word-break:break-word}
-        .log-extra{color:var(--muted);font-family:var(--mono)}
-        .lvl{display:inline-block;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-        .lvl-error{background:rgba(248,113,113,.15);color:var(--red)}
-        .lvl-warn{background:rgba(251,191,36,.15);color:var(--orange)}
-        .lvl-info{background:rgba(79,143,255,.15);color:var(--accent)}
-        .lvl-http{background:rgba(52,211,153,.15);color:var(--green)}
+/* error rows */
+.er-row{padding:11px 16px;border-bottom:1px solid var(--border);transition:background .1s}
+.er-row:last-child{border-bottom:none}
+.er-row:hover{background:var(--s2)}
+.er-ts{font-family:var(--mono);font-size:9px;color:var(--muted);margin-bottom:3px}
+.er-msg{font-family:var(--mono);font-size:11px;color:var(--red);line-height:1.5;word-break:break-word}
 
-        /* Refresh controls */
-        .refresh-bar{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
-        .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;cursor:pointer;transition:.15s;text-decoration:none}
-        .btn:hover{border-color:var(--accent);color:var(--accent)}
-        .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-        .btn.primary:hover{opacity:.88}
-        .toggle-auto{display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;font-size:13px;color:var(--muted)}
-        .toggle-auto input{display:none}
-        .toggle-track{width:34px;height:18px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;position:relative;transition:.2s}
-        .toggle-thumb{position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--muted);border-radius:50%;transition:.2s}
-        input:checked + .toggle-track{background:var(--accent);border-color:var(--accent)}
-        input:checked ~ .toggle-thumb{left:18px;background:#fff}
-        .countdown{font-family:var(--mono);font-size:12px;color:var(--muted);min-width:30px}
+/* levels */
+.lv-row{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border)}
+.lv-row:last-child{border-bottom:none}
+.lb{font-family:var(--mono);font-size:10px;font-weight:500;padding:2px 8px;border-radius:3px;min-width:58px;text-align:center;letter-spacing:.4px}
+.l-error{background:var(--red-d);color:var(--red)}
+.l-warn{background:var(--yellow-d);color:var(--yellow)}
+.l-info{background:var(--blue-d);color:var(--blue)}
+.l-http{background:var(--green-d);color:var(--green)}
+.l-debug,.l-unknown{background:var(--s3);color:var(--muted)}
+.lc{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto}
 
-        /* Days selector */
-        .days-sel{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;cursor:pointer}
-        .days-sel:focus{border-color:var(--accent)}
+/* log viewer */
+.lc-bar{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.lsel{font-family:var(--mono);font-size:11px;background:var(--s2);border:1px solid var(--border2);color:var(--dim);padding:5px 9px;border-radius:4px;cursor:pointer}
+.lsel:focus{outline:none;border-color:var(--blue)}
+.lsrch{font-family:var(--mono);font-size:11px;background:var(--s2);border:1px solid var(--border2);color:var(--text);padding:5px 11px;border-radius:4px;flex:1;min-width:130px}
+.lsrch::placeholder{color:var(--muted)}
+.lsrch:focus{outline:none;border-color:var(--blue)}
+.lcnt{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto}
 
-        /* Empty */
-        .empty-row{padding:16px;color:var(--muted);font-size:13px;text-align:center}
+.les{max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border2) transparent}
+.le{display:grid;grid-template-columns:130px 66px 1fr;padding:6px 16px;border-bottom:1px solid rgba(42,45,51,.45);font-family:var(--mono);font-size:11px;line-height:1.5;transition:background .1s;cursor:default}
+.le:hover{background:var(--s2)}
+.le.l-error{border-left:2px solid var(--red)}
+.le.l-warn{border-left:2px solid var(--yellow)}
+.le.l-info,.le.l-http{border-left:2px solid transparent}
+.le-ts{color:var(--muted)}
+.le-msg{color:var(--text);word-break:break-word}
 
-        /* Last updated badge */
-        .updated-badge{font-family:var(--mono);font-size:11px;color:var(--muted)}
+/* empty / skeleton */
+.empty{padding:36px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.sk{background:linear-gradient(90deg,var(--s2) 25%,var(--s3) 50%,var(--s2) 75%);background-size:200% 100%;animation:sh 1.2s infinite;border-radius:3px}
+@keyframes sh{to{background-position:-200% 0}}
 
-        /* Level breakdown */
-        .level-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-        .level-item{background:var(--surface2);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
-        .level-item .val{font-size:22px;font-weight:700}
-        .level-item .lbl{font-size:11px;color:var(--muted)}
-        .level-item.err .val{color:var(--red)}
-        .level-item.warn .val{color:var(--orange)}
-        .level-item.inf .val{color:var(--accent)}
-        .level-item.htt .val{color:var(--green)}
-
-        .section-mb{margin-bottom:18px}
-    </style>
+/* toast */
+#toast{position:fixed;bottom:20px;right:20px;background:var(--s3);border:1px solid var(--border2);border-radius:5px;padding:9px 14px;font-family:var(--mono);font-size:11px;color:var(--dim);opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none;z-index:999}
+#toast.show{opacity:1;transform:translateY(0)}
+</style>
 </head>
 <body>
 
-<div class="header">
-    <div class="header-inner">
-        <div class="logo">
-            <div class="logo-icon">⚡</div>
-            Gharda CRM API — Logs
+<div class="tb">
+    <div class="tb-l">
+        <span class="pill">GHARDA</span>
+        <span class="tb-title">Server Logs</span>
+        <div style="display:flex;align-items:center;gap:6px">
+            <div class="sdot" id="sdot"></div>
+            <span class="stxt" id="stxt">loading…</span>
         </div>
-        <div class="nav">
-            <a href="/pages/accounts">Accounts</a>
-            <a href="/health">Health</a>
-            <a href="/debug/zoho">Debug</a>
-            <a href="#" class="active">Logs</a>
-        </div>
-        <div class="header-actions">
-            <select class="days-sel" id="daysSel" onchange="changeDays(this.value)">
-                <option value="1" ${days===1?'selected':''}>Today</option>
-                <option value="3" ${days===3?'selected':''}>Last 3 days</option>
-                <option value="7" ${days===7?'selected':''}>Last 7 days</option>
-                <option value="14" ${days===14?'selected':''}>Last 14 days</option>
-            </select>
-        </div>
+    </div>
+    <div class="tb-r">
+        <button class="btn" onclick="refreshAll()" id="rbtn">↻ Refresh</button>
+        <button class="btn" id="abtn" onclick="toggleAuto()">Auto: OFF</button>
+        <span id="cd"></span>
     </div>
 </div>
 
-<div class="container">
+<div class="main">
 
-    <!-- Stat Cards -->
-    <div class="stats">
-        <div class="stat accent">
-            <div class="stat-val" id="sReq">${totals.requests.toLocaleString()}</div>
-            <div class="stat-lbl">Total Requests</div>
+    <!-- Stats -->
+    <div class="sh">
+        <span class="st">Overview · Last 7 Days</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--muted)" id="upd"></span>
+    </div>
+    <div class="sg">
+        <div class="sc" style="--ac:var(--blue)"><div class="sl">TOTAL REQUESTS</div><div class="sv sk" style="height:26px;width:75px" id="s-req">&nbsp;</div><div class="ss" id="s-req-s">&nbsp;</div></div>
+        <div class="sc" style="--ac:var(--red)"><div class="sl">ERRORS</div><div class="sv sk" style="height:26px;width:55px" id="s-err">&nbsp;</div><div class="ss" id="s-err-s">&nbsp;</div></div>
+        <div class="sc" style="--ac:var(--yellow)"><div class="sl">ERROR RATE</div><div class="sv sk" style="height:26px;width:65px" id="s-rate">&nbsp;</div><div class="ss" id="s-rate-s">&nbsp;</div></div>
+        <div class="sc" style="--ac:var(--cyan)"><div class="sl">TOTAL LOG LINES</div><div class="sv sk" style="height:26px;width:75px" id="s-tot">&nbsp;</div><div class="ss" id="s-tot-s">&nbsp;</div></div>
+        <div class="sc" style="--ac:var(--green)"><div class="sl">LAST ACTIVITY</div><div class="sv" style="font-size:13px;padding-top:4px" id="s-last">—</div><div class="ss" id="s-last-s">&nbsp;</div></div>
+    </div>
+
+    <!-- Chart + Levels -->
+    <div class="two">
+        <div class="pn">
+            <div class="ph">
+                <span class="pt">REQUESTS PER DAY</span>
+                <span style="display:flex;gap:10px;font-family:var(--mono);font-size:10px">
+                    <span style="color:var(--blue)">■ req</span>
+                    <span style="color:var(--red)">■ err</span>
+                </span>
+            </div>
+            <div class="cw" id="chart"><div class="empty">Loading…</div></div>
         </div>
-        <div class="stat red">
-            <div class="stat-val" id="sErr">${totals.errors.toLocaleString()}</div>
-            <div class="stat-lbl">Errors</div>
-        </div>
-        <div class="stat orange">
-            <div class="stat-val" id="sWarn">${totals.warnings.toLocaleString()}</div>
-            <div class="stat-lbl">Warnings</div>
-        </div>
-        <div class="stat ${parseFloat(errorRate) > 5 ? 'red' : 'green'}">
-            <div class="stat-val" id="sRate">${errorRate}%</div>
-            <div class="stat-lbl">Error Rate</div>
-        </div>
-        <div class="stat yellow">
-            <div class="stat-val" id="sLines">${totals.allLines.toLocaleString()}</div>
-            <div class="stat-lbl">Log Lines</div>
-        </div>
-        <div class="stat">
-            <div class="stat-val" style="font-size:14px;margin-top:4px" id="sLast">${lastActivity ? lastActivity.slice(11,19) : '—'}</div>
-            <div class="stat-lbl">Last Activity</div>
+        <div class="pn">
+            <div class="ph"><span class="pt">LOG LEVEL BREAKDOWN</span></div>
+            <div id="levels"><div class="empty">Loading…</div></div>
         </div>
     </div>
 
-    <!-- Charts Row -->
-    <div class="grid2 section-mb">
-        <!-- Daily bar chart -->
-        <div class="panel">
-            <div class="panel-head">Daily Activity</div>
-            <div class="chart" id="dailyChart">${chartBars || '<div class="empty-row">No data</div>'}</div>
-            <div class="chart-legend">
-                <span><span class="dot" style="background:var(--accent)"></span>Requests</span>
-                <span><span class="dot" style="background:var(--red)"></span>Errors</span>
-            </div>
+    <!-- Top URLs + Recent errors -->
+    <div class="two">
+        <div class="pn">
+            <div class="ph"><span class="pt">TOP ENDPOINTS</span></div>
+            <div id="topurls"><div class="empty">Loading…</div></div>
         </div>
-
-        <!-- Level breakdown -->
-        <div class="panel">
-            <div class="panel-head">Log Level Breakdown</div>
-            <div class="panel-body">
-                <div class="level-grid">
-                    <div class="level-item err"><div class="val" id="lvlErr">${totals.errors}</div><div class="lbl">Errors</div></div>
-                    <div class="level-item warn"><div class="val" id="lvlWarn">${totals.warnings}</div><div class="lbl">Warnings</div></div>
-                    <div class="level-item inf"><div class="val" id="lvlInfo">${totals.info}</div><div class="lbl">Info</div></div>
-                    <div class="level-item htt"><div class="val" id="lvlHttp">${totals.requests}</div><div class="lbl">HTTP</div></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Top Endpoints + Recent Errors -->
-    <div class="grid2 section-mb">
-        <div class="panel">
-            <div class="panel-head">Top Endpoints</div>
-            <div class="panel-body" id="epList">${epRows}</div>
-        </div>
-        <div class="panel">
-            <div class="panel-head">Recent Errors</div>
-            <div class="panel-body" id="errList">${errRows}</div>
+        <div class="pn">
+            <div class="ph"><span class="pt">RECENT ERRORS</span></div>
+            <div id="recerr"><div class="empty">Loading…</div></div>
         </div>
     </div>
 
     <!-- Log Viewer -->
-    <div class="panel">
-        <div class="panel-head">
-            Log Viewer
-            <div class="refresh-bar">
-                <label class="toggle-auto">
-                    <input type="checkbox" id="autoToggle" onchange="toggleAuto(this.checked)">
-                    <div class="toggle-track"><div class="toggle-thumb"></div></div>
-                    Auto
-                </label>
-                <span class="countdown" id="countdown"></span>
-                <button class="btn primary" onclick="refreshNow()">↻ Refresh</button>
-                <span class="updated-badge" id="lastUpdated"></span>
-            </div>
+    <div class="sh" style="margin-top:8px"><span class="st">Log Viewer</span></div>
+    <div class="pn" style="margin-bottom:40px">
+        <div class="lc-bar">
+            <select class="lsel" id="ltype" onchange="loadLogs()">
+                <option value="combined">Combined</option>
+                <option value="error">Errors Only</option>
+                <option value="http">HTTP</option>
+            </select>
+            <select class="lsel" id="llvl" onchange="loadLogs()">
+                <option value="">All levels</option>
+                <option value="error">error</option>
+                <option value="warn">warn</option>
+                <option value="info">info</option>
+                <option value="http">http</option>
+            </select>
+            <select class="lsel" id="ldays" onchange="loadLogs()">
+                <option value="1">Today</option>
+                <option value="3">Last 3 days</option>
+                <option value="7">Last 7 days</option>
+            </select>
+            <input class="lsrch" id="lsrch" placeholder="Search logs…" oninput="dsearch()">
+            <span class="lcnt" id="lcnt"></span>
         </div>
-        <div class="log-toolbar">
-            <input class="log-search" id="logSearch" type="text" placeholder="Search logs…" oninput="filterLogs()">
-            <button class="filter-btn active"     id="f-all"  onclick="setFilter('all')">All</button>
-            <button class="filter-btn err-f"      id="f-error" onclick="setFilter('error')">Error</button>
-            <button class="filter-btn warn-f"     id="f-warn"  onclick="setFilter('warn')">Warn</button>
-            <button class="filter-btn"            id="f-info"  onclick="setFilter('info')">Info</button>
-            <button class="filter-btn http-f"     id="f-http"  onclick="setFilter('http')">HTTP</button>
-        </div>
-        <div style="overflow-x:auto;max-height:520px;overflow-y:auto">
-            <table class="log-table">
-                <thead><tr>
-                    <th>Timestamp</th><th>Level</th><th>Message</th>
-                </tr></thead>
-                <tbody id="logBody">${entryRows}</tbody>
-            </table>
-        </div>
+        <div class="les" id="lentries"><div class="empty">Loading…</div></div>
     </div>
 
 </div>
+<div id="toast"></div>
 
 <script>
-    const DATA_URL = '${dataUrl}';
-    let   activeFilter = 'all';
-    let   autoInterval = null;
-    let   countdown    = 10;
-    let   countdownTimer = null;
+const K = ${JSON.stringify(apiKey)};
 
-    // ── Filter ────────────────────────────────────────────────────────────
-    function setFilter(lvl) {
-        activeFilter = lvl;
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-        document.getElementById('f-' + (lvl === 'warn' ? 'warn' : lvl)).classList.add('active');
-        filterLogs();
-    }
+async function api(p) {
+    const sep = p.includes('?') ? '&' : '?';
+    const r = await fetch('/logs' + p + sep + 'key=' + encodeURIComponent(K));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+}
 
-    function filterLogs() {
-        const q   = document.getElementById('logSearch').value.toLowerCase();
-        const rows = document.querySelectorAll('#logBody .log-row');
-        rows.forEach(r => {
-            const lvl = r.dataset.level || '';
-            const msg = r.dataset.msg   || '';
-            const matchLvl = activeFilter === 'all' || lvl === activeFilter
-                || (activeFilter === 'warn' && lvl === 'warn');
-            const matchQ   = !q || msg.includes(q);
-            r.style.display = matchLvl && matchQ ? '' : 'none';
-        });
-    }
+function toast(m, d=2000) {
+    const t = document.getElementById('toast');
+    t.textContent = m; t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), d);
+}
 
-    // ── Auto refresh ──────────────────────────────────────────────────────
-    function toggleAuto(on) {
-        if (on) {
-            startCountdown();
-        } else {
-            clearInterval(autoInterval);
-            clearInterval(countdownTimer);
-            document.getElementById('countdown').textContent = '';
-            autoInterval   = null;
-            countdownTimer = null;
+function fmtTime(ts) {
+    if (!ts) return '—';
+    try { return new Date(ts).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}); }
+    catch { return ts.slice(11,19) || ts; }
+}
+function fmtDT(ts) {
+    if (!ts) return '—';
+    try { return new Date(ts).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true}); }
+    catch { return ts; }
+}
+function rel(ts) {
+    if (!ts) return '';
+    const d = Date.now() - new Date(ts).getTime();
+    if (d < 60000) return Math.floor(d/1000)+'s ago';
+    if (d < 3600000) return Math.floor(d/60000)+'m ago';
+    if (d < 86400000) return Math.floor(d/3600000)+'h ago';
+    return Math.floor(d/86400000)+'d ago';
+}
+
+function badge(lvl) {
+    const m = {error:'l-error',warn:'l-warn',info:'l-info',http:'l-http',debug:'l-debug'};
+    return '<span class="lb '+(m[lvl]||'l-unknown')+'">'+(lvl||'?')+'</span>';
+}
+
+function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function loadSummary() {
+    try {
+        const { data: d } = await api('/api/summary?days=7');
+
+        function set(id, val, sub) {
+            const el = document.getElementById(id);
+            el.classList.remove('sk'); el.style=''; el.textContent = val;
+            if (sub) document.getElementById(id+'-s').textContent = sub;
         }
+
+        set('s-req',  d.totalRequests.toLocaleString(), '7-day total');
+        set('s-err',  d.totalErrors.toLocaleString(),   'across all routes');
+        set('s-rate', d.errorRate,                      'errors / requests');
+        set('s-tot',  d.totalLogs.toLocaleString(),     'lines parsed');
+
+        document.getElementById('s-last').textContent = rel(d.lastActivity);
+        document.getElementById('s-last-s').textContent = fmtDT(d.lastActivity);
+        document.getElementById('upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+        const alive = d.lastActivity && (Date.now()-new Date(d.lastActivity).getTime()) < 3600000;
+        document.getElementById('sdot').style.background = alive ? 'var(--green)' : 'var(--yellow)';
+        document.getElementById('stxt').textContent = alive ? 'active' : 'idle';
+
+        renderChart(d.dailyCounts, d.dailyErrors);
+        renderLevels(d.levelCounts);
+        renderTopUrls(d.topUrls);
+        renderErrors(d.recentErrors);
+
+    } catch(e) {
+        document.getElementById('stxt').textContent = 'error';
+        document.getElementById('sdot').style.background = 'var(--red)';
+        toast('Summary load failed: '+e.message, 3000);
     }
+}
 
-    function startCountdown() {
-        countdown = 10;
-        document.getElementById('countdown').textContent = countdown + 's';
-        clearInterval(countdownTimer);
-        countdownTimer = setInterval(() => {
-            countdown--;
-            document.getElementById('countdown').textContent = countdown + 's';
-            if (countdown <= 0) {
-                refreshNow();
-                countdown = 10;
-            }
-        }, 1000);
+function renderChart(dc, de) {
+    const wrap = document.getElementById('chart');
+    const days = Object.keys(dc).sort().slice(-14);
+    if (!days.length) { wrap.innerHTML='<div class="empty">No data yet</div>'; return; }
+    const mx = Math.max(...days.map(d=>dc[d]||0), 1);
+    const mh = 74;
+    wrap.innerHTML = days.map(day => {
+        const rq = dc[day]||0, er = de[day]||0;
+        const rh = Math.max(Math.round((rq/mx)*mh),2);
+        const eh = Math.max(Math.round((er/mx)*mh), er>0?2:0);
+        return '<div class="cbg"><div style="display:flex;align-items:flex-end;gap:2px;height:'+mh+'px">'
+            +'<div class="cb rq" style="height:'+rh+'px" title="'+rq+' requests on '+day+'"></div>'
+            +(er>0?'<div class="cb er" style="height:'+eh+'px" title="'+er+' errors on '+day+'"></div>':'')
+            +'</div><div class="cl">'+day.slice(5)+'</div></div>';
+    }).join('');
+}
+
+function renderLevels(lc) {
+    const el = document.getElementById('levels');
+    const rows = Object.entries(lc).sort((a,b)=>b[1]-a[1]);
+    if (!rows.length) { el.innerHTML='<div class="empty">No data</div>'; return; }
+    el.innerHTML = rows.map(([l,c]) =>
+        '<div class="lv-row">'+badge(l)+'<span class="lc">'+c.toLocaleString()+'</span></div>'
+    ).join('');
+}
+
+function renderTopUrls(urls) {
+    const el = document.getElementById('topurls');
+    if (!urls||!urls.length) { el.innerHTML='<div class="empty">No data</div>'; return; }
+    const mx = urls[0].count;
+    el.innerHTML = urls.map(({url,count}) => {
+        const pct = Math.round((count/mx)*100);
+        return '<div class="ur"><div style="flex:1;min-width:0">'
+            +'<div class="up" title="'+esc(url)+'">'+esc(url)+'</div>'
+            +'<div class="ub"><div class="ubf" style="width:'+pct+'%"></div></div>'
+            +'</div><div class="uc">'+count+'</div></div>';
+    }).join('');
+}
+
+function renderErrors(errs) {
+    const el = document.getElementById('recerr');
+    if (!errs||!errs.length) {
+        el.innerHTML='<div class="empty" style="color:var(--green)">✓ No recent errors</div>'; return;
     }
+    el.innerHTML = errs.map(e =>
+        '<div class="er-row"><div class="er-ts">'+fmtDT(e.timestamp)+'</div>'
+        +'<div class="er-msg">'+esc(e.message||'Unknown error')+'</div>'
+        +(e.stack?'<div class="er-ts" style="margin-top:2px;color:var(--muted)">'+esc(e.stack)+'</div>':'')
+        +'</div>'
+    ).join('');
+}
 
-    // ── Refresh ───────────────────────────────────────────────────────────
-    async function refreshNow() {
-        try {
-            const resp = await fetch(DATA_URL);
-            if (!resp.ok) return;
-            const data = await resp.json();
-            applyData(data);
-            document.getElementById('lastUpdated').textContent =
-                'Updated ' + new Date().toLocaleTimeString();
-            if (document.getElementById('autoToggle').checked) {
-                countdown = 10;
-            }
-        } catch (e) {
-            console.error('Refresh failed', e);
-        }
-    }
-
-    function applyData({ analytics, entries }) {
-        const { totals, daily, topEndpoints, recentErrors, lastActivity } = analytics;
-
-        // Stats
-        document.getElementById('sReq').textContent  = totals.requests.toLocaleString();
-        document.getElementById('sErr').textContent  = totals.errors.toLocaleString();
-        document.getElementById('sWarn').textContent = totals.warnings.toLocaleString();
-        const rate = totals.requests > 0
-            ? ((totals.errors / totals.requests) * 100).toFixed(1) : '0.0';
-        document.getElementById('sRate').textContent  = rate + '%';
-        document.getElementById('sLines').textContent = totals.allLines.toLocaleString();
-        document.getElementById('sLast').textContent  = lastActivity ? lastActivity.slice(11,19) : '—';
-
-        // Level breakdown
-        document.getElementById('lvlErr').textContent  = totals.errors;
-        document.getElementById('lvlWarn').textContent = totals.warnings;
-        document.getElementById('lvlInfo').textContent = totals.info;
-        document.getElementById('lvlHttp').textContent = totals.requests;
-
-        // Log table
-        const tbody = document.getElementById('logBody');
-        tbody.innerHTML = entries.slice(0, 300).map(e => {
-            const lvl = (e.level || 'info').toLowerCase();
-            const msg = e.message || '';
-            const ts  = e.timestamp || '';
-            const { level, message, timestamp, ...rest } = e;
-            const extra = Object.keys(rest).length ? JSON.stringify(rest) : '';
-            return '<tr class="log-row" data-level="' + lvl + '" data-msg="' + msg.toLowerCase() + '">' +
-                '<td class="log-ts">' + ts + '</td>' +
-                '<td><span class="lvl lvl-' + lvl + '">' + lvl + '</span></td>' +
-                '<td class="log-msg">' + msg + (extra ? '<span class="log-extra"> ' + extra + '</span>' : '') + '</td>' +
-                '</tr>';
+async function loadLogs() {
+    const type  = document.getElementById('ltype').value;
+    const lvl   = document.getElementById('llvl').value;
+    const days  = document.getElementById('ldays').value;
+    const srch  = document.getElementById('lsrch').value;
+    const el    = document.getElementById('lentries');
+    const cnt   = document.getElementById('lcnt');
+    el.innerHTML = '<div class="empty">Loading…</div>';
+    try {
+        const { data } = await api('/api/entries?type='+type+'&level='+lvl+'&days='+days+'&search='+encodeURIComponent(srch)+'&limit=200');
+        cnt.textContent = data.total.toLocaleString()+' entries';
+        if (!data.entries.length) { el.innerHTML='<div class="empty">No entries found</div>'; return; }
+        el.innerHTML = data.entries.map(e => {
+            const msg = e.message || e.raw || JSON.stringify(e);
+            const lv  = e.level || 'unknown';
+            const clean = typeof msg === 'string' ? msg.replace(/^\d{4}-\d{2}-\d{2}\s/,'').trim() : JSON.stringify(msg);
+            return '<div class="le l-'+lv+'">'
+                +'<span class="le-ts">'+fmtTime(e.timestamp)+'</span>'
+                +badge(lv)
+                +'<span class="le-msg">'+esc(clean)+'</span>'
+                +'</div>';
         }).join('');
-        filterLogs();
+    } catch(e) {
+        el.innerHTML = '<div class="empty" style="color:var(--red)">Error: '+esc(e.message)+'</div>';
     }
+}
 
-    // ── Days selector ─────────────────────────────────────────────────────
-    function changeDays(val) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('days', val);
-        window.location.href = url.toString();
+let stimer=null;
+function dsearch(){ clearTimeout(stimer); stimer=setTimeout(loadLogs,400); }
+
+let aiv=null, ctv=null, cd=10;
+function toggleAuto() {
+    const b = document.getElementById('abtn');
+    const c = document.getElementById('cd');
+    if (aiv) {
+        clearInterval(aiv); clearInterval(ctv); aiv=null;
+        b.textContent='Auto: OFF'; b.classList.remove('on'); c.textContent='';
+    } else {
+        cd=10; c.textContent=cd+'s';
+        aiv = setInterval(()=>{ refreshAll(); cd=10; }, 10000);
+        ctv = setInterval(()=>{ cd--; c.textContent=cd+'s'; if(cd<=0) cd=10; }, 1000);
+        b.textContent='Auto: ON'; b.classList.add('on');
+        toast('Auto-refresh on (10s)');
     }
+}
+
+async function refreshAll() {
+    const b = document.getElementById('rbtn');
+    b.textContent='↻ …'; b.disabled=true;
+    await Promise.all([loadSummary(), loadLogs()]);
+    b.textContent='↻ Refresh'; b.disabled=false;
+    toast('Refreshed');
+}
+
+refreshAll();
 </script>
 </body>
 </html>`;
-}
-
-// ── HTML escape helper ────────────────────────────────────────────────────────
-function escH(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
 }

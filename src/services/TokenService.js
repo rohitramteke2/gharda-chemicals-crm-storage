@@ -170,6 +170,65 @@ class TokenService {
         }
     }
 
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  GENERATE short-lived file token
+    //  Used to sign individual storage file URLs so they expire
+    //  TTL: same as page token (15 min) — both expire together
+    // ─────────────────────────────────────────────────────────────────────
+    generateFileToken(filePath) {
+        const payload = {
+            path:  filePath,
+            exp:   Math.floor(Date.now() / 1000) + TTL_SECONDS,
+            nonce: crypto.randomBytes(6).toString('hex'),
+        };
+        const payloadB64 = this._toBase64Url(JSON.stringify(payload));
+        const sig        = this._sign(payloadB64);
+        return `${payloadB64}.${sig}`;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  VALIDATE file token  →  returns filePath if valid, null if not
+    // ─────────────────────────────────────────────────────────────────────
+    validateFileToken(token, filePath) {
+        try {
+            if (!token) return null;
+            const parts = token.split('.');
+            if (parts.length !== 2) return null;
+
+            const [payloadB64, sig] = parts;
+
+            // Verify signature
+            const expectedSig = this._sign(payloadB64);
+            if (!crypto.timingSafeEqual(
+                Buffer.from(sig,         'base64url'),
+                Buffer.from(expectedSig, 'base64url'),
+            )) {
+                logger.warn('TokenService: file token invalid signature');
+                return null;
+            }
+
+            const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+
+            // Check expiry
+            if (Math.floor(Date.now() / 1000) > payload.exp) {
+                logger.warn('TokenService: file token expired');
+                return null;
+            }
+
+            // Path must match
+            if (payload.path !== filePath) {
+                logger.warn('TokenService: file token path mismatch');
+                return null;
+            }
+
+            return payload.path;
+        } catch (err) {
+            logger.warn('TokenService: file token validation error', { message: err.message });
+            return null;
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     //  PRIVATE HELPERS
     // ─────────────────────────────────────────────────────────────────────
