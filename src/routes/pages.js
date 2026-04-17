@@ -1,7 +1,4 @@
 import { Router } from 'express';
-import fse  from 'fs-extra';
-import path from 'path';
-import { env } from '../config/env.js';
 import express from 'express';
 import accountService from '../services/AccountFileUploadService.js';
 import creatorService from '../services/ZohoCreatorService.js';
@@ -19,7 +16,9 @@ import {
 } from '../views/pages.js';
 
 import { tokenGate } from '../middleware/tokenGate.js';
-import TokenService from '../services/TokenService.js';
+import TokenService  from '../services/TokenService.js';
+import fse           from 'fs-extra';
+import path          from 'path';
 
 const router = Router();
 
@@ -228,11 +227,14 @@ router.get('/docs/:encryptedId', tokenGate, async (req, res) => {
         const folderName = record?.SAP_ID || `crm-${recordId}`;
         const data       = await accountService.listDownloadedFiles(folderName);
  
-        // Build a signing function that creates token-gated file URLs
-        const BASE = env.PUBLIC_BASE_URL || 'https://zoho.gharda.com:14443/production';
+        // Sign each file URL — expires in 15 min, cannot be guessed
+        const BASE        = env.PUBLIC_BASE_URL || 'https://zoho.gharda.com:14443/production';
         const signFileUrl = (filePath) => {
-            const token = TokenService.generateFileToken(filePath);
-            return BASE + '/pages/storage?path=' + encodeURIComponent(filePath) + '&token=' + encodeURIComponent(token);
+            const tok = TokenService.generateFileToken(filePath);
+            // filePath may already have %20 encoded spaces from listDownloadedFiles
+            // Use encodeURI (not encodeURIComponent) to avoid double-encoding
+            const encodedPath = filePath.includes('%') ? filePath : encodeURIComponent(filePath);
+            return `${BASE}/pages/storage?path=${encodedPath}&token=${encodeURIComponent(tok)}`;
         };
 
         res.send(renderDocsViewer(recordId, folderName, data, signFileUrl));
@@ -244,48 +246,50 @@ router.get('/docs/:encryptedId', tokenGate, async (req, res) => {
     }
 });
 
-
-// ── Token-gated file serving — replaces express.static for /storage ─────────
+// ── Token-gated file serving (/pages/storage) ───────────────────────────────
 //
-//  Every file URL in the docs viewer is signed:
+//  All file download/view links in the docs viewer are now signed:
 //    /pages/storage?path=/storage/Accounts/SAP_ID/field/file.pdf&token=xxx
 //
-//  token is HMAC-signed { path, exp, nonce } — expires in 15 min.
-//  Without a valid token → 403.  Expired token → 403.
-//  Path must exactly match what was signed — cannot be manipulated.
+//  token = HMAC-signed { path, exp, nonce } — expires 15 min, path-locked.
+//  Anyone hitting /storage/* directly gets 404 (express.static removed).
 //
 router.get('/storage', async (req, res) => {
     const { path: filePath, token } = req.query;
 
-    // ── Validate inputs ───────────────────────────────────────────────────
     if (!filePath || !token) {
-        return res.status(403).send('Access denied — missing token or path');
+        return res.status(403).send('Access denied — missing token or path.');
     }
 
-    // ── Validate token ────────────────────────────────────────────────────
-    const validPath = TokenService.validateFileToken(token, filePath);
-    if (!validPath) {
-        return res.status(403).send('Access denied — link expired or invalid');
+    const valid = TokenService.validateFileToken(token, filePath);
+    if (!valid) {
+        return res.status(403).send('Access denied — link expired or invalid.');
     }
 
-    // ── Resolve to absolute path on disk ─────────────────────────────────
-    // filePath is like /storage/Accounts/SAP_ID/field/file.pdf
-    // Strip leading /storage/ since ATTACHMENT_DIR is the storage root
-    const relative = filePath.replace(/^\/storage\//, '');
+    // Decode filePath — browser may double-encode spaces (%20 → %2520)
+    // Decode once to handle %2520 → %20 → space
+    let decodedPath = filePath;
+    try { decodedPath = decodeURIComponent(filePath); } catch { decodedPath = filePath; }
+
+    // Strip /storage/ prefix — ATTACHMENT_DIR is the storage root
+    const relative    = decodedPath.replace(/^\/storage\//, '').replace(/^storage\//, '');
     const storageRoot = path.resolve(env.ATTACHMENT_DIR);
+
+    // Use path.join which handles Windows backslashes correctly
     const absPath     = path.join(storageRoot, relative);
 
-    // ── Path traversal guard ──────────────────────────────────────────────
-    if (!absPath.startsWith(storageRoot)) {
-        return res.status(403).send('Access denied — invalid path');
+    // Path traversal guard — normalize both to compare safely on Windows
+    const normalRoot = path.resolve(storageRoot);
+    const normalAbs  = path.resolve(absPath);
+    if (!normalAbs.startsWith(normalRoot)) {
+        return res.status(403).send('Access denied — invalid path.');
     }
 
-    // ── Serve file ────────────────────────────────────────────────────────
-    if (!await fse.pathExists(absPath)) {
-        return res.status(404).send('File not found');
+    if (!await fse.pathExists(normalAbs)) {
+        return res.status(404).send('File not found.');
     }
 
-    res.sendFile(absPath);
+    res.sendFile(normalAbs);
 });
 
 // ── Catch-all 404 for /pages/* ──────────────────────────────────────────────

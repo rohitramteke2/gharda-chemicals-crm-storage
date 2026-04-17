@@ -17,7 +17,7 @@ import auth from './services/ZohoAuthService.js';
 import accountRoutes from './routes/accounts.js';
 import farmerRoutes from './routes/farmers.js';
 import pageRoutes from './routes/pages.js';
-import logRoutes from './routes/logs.js';
+import logRoutes   from './routes/logs.js';
 import { renderError } from './views/pages.js';
 
 export function createApp() {
@@ -30,7 +30,9 @@ export function createApp() {
         contentSecurityPolicy: {
             directives: {
                 ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-                'style-src':     ["'self'", "'unsafe-inline'"],
+                'style-src':       ["'self'", "'unsafe-inline'"],
+                'script-src':      ["'self'", "'unsafe-inline'", "'unsafe-hashes'"],
+                'script-src-attr': ["'unsafe-inline'"],
                 // Allow Zoho CRM to embed pages in iframe
                 'frame-ancestors': ["*"],
             },
@@ -39,46 +41,44 @@ export function createApp() {
         // (helmet sets it to SAMEORIGIN by default which also blocks iframes)
         frameguard: false,
     }));
-    
     // note: blocks everything in pt
     // app.use(cors({ origin: env.isProd() ? [] : '*', methods: ['GET', 'POST'] }));
 
     // ── CORS ─────────────────────────────────────────────────────────────────
     // Allowed origins:
-    //   - *.zoho.in / *.zoho.com     → Zoho CRM widgets (production)
-    //   - 127.0.0.1:*                → Zoho CRM widget local dev server
-    //   - localhost:*                → local development
-    //   - no origin                  → Postman, Deluge invokeurl, server-to-server
+    //   - *.zoho.in / *.zoho.com   → Zoho CRM / Creator / widgets (production)
+    //   - 127.0.0.1:*              → Zoho CRM widget local dev server (runs on port 5000)
+    //   - *.zwidgets.com           → Zoho widget CDN in production
+    //   - localhost:*              → local development
+    //   - no origin                → Postman, Deluge invokeurl, server-to-server
     const corsOptions = {
         origin: (origin, callback) => {
             // No origin = Postman / server-to-server / Deluge — always allow
             if (!origin) return callback(null, true);
-
             // Zoho production domains
             if (origin.endsWith('.zoho.in') || origin.endsWith('.zoho.com')) return callback(null, true);
+            // Zoho CRM widget production host (*.zappsusercontent.in)
 
-            // Zoho widget local dev server (runs on 127.0.0.1 with any port)
+            if (origin.endsWith('.zappsusercontent.in')) return callback(null, true);
+            // Zoho widget local dev server (e.g. https://127.0.0.1:5000)
             if (origin.startsWith('https://127.0.0.1') || origin.startsWith('http://127.0.0.1')) return callback(null, true);
-
             // Zoho widget CDN
             if (origin.endsWith('.zwidgets.com')) return callback(null, true);
-
-            // for zoho widget
-            if (origin.endsWith('.zappsusercontent.in')) return callback(null, true);
-
             // Localhost dev
             if (origin.startsWith('http://localhost') || origin.startsWith('https://localhost')) return callback(null, true);
+            // Dev mode — allow everything
+            if (env.isDev()) return callback(null, true);
 
             logger.warn('CORS blocked', { origin });
             callback(new Error('CORS: origin not allowed'));
         },
-        methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+        methods:        ['GET', 'POST', 'PATCH', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization'],
-        credentials: true,
+        credentials:    true,
     };
 
     app.options('*', cors(corsOptions));  // handle preflight OPTIONS first
-    app.use(cors(corsOptions));           // apply to all routes
+    app.use(cors(corsOptions));           // apply CORS to all routes
 
     app.use(compression());
 
@@ -116,12 +116,12 @@ export function createApp() {
         const checks = {
             timestamp: new Date().toISOString(),
             config: {
-                nodeEnv: env.NODE_ENV,
-                sslBypassed: !!zohoHttpsAgent,
-                accountsUrl: env.ZOHO_ACCOUNTS_URL,
-                apiDomain: env.ZOHO_API_DOMAIN,
-                redirectUri: env.ZOHO_REDIRECT_URI,
-                clientId: maskVal('ZOHO_CLIENT_ID', env.ZOHO_CLIENT_ID),
+                nodeEnv:      env.NODE_ENV,
+                sslBypassed:  !!zohoHttpsAgent,
+                accountsUrl:  env.ZOHO_ACCOUNTS_URL,
+                apiDomain:    env.ZOHO_API_DOMAIN,
+                redirectUri:  env.ZOHO_REDIRECT_URI,
+                clientId:     maskVal('ZOHO_CLIENT_ID', env.ZOHO_CLIENT_ID),
                 clientSecret: maskVal('ZOHO_CLIENT_SECRET', env.ZOHO_CLIENT_SECRET),
                 refreshToken: maskVal('ZOHO_REFRESH_TOKEN', env.ZOHO_REFRESH_TOKEN),
             },
@@ -154,9 +154,8 @@ export function createApp() {
         res.status(allOk ? 200 : 503).json(checks);
     });
 
-    // /storage files are served via token-gated route in pages.js
-    // express.static removed — direct /storage URLs now return 404
-    // Files only accessible via /pages/storage?path=...&token=... (signed, expires 15 min)
+    // /storage/* files are served via token-gated /pages/storage route
+    // Direct /storage/* URLs now return 404 — all file access requires a signed token
 
     // ── HTML Pages ──────────────────────────────────────────────────────────
     //
@@ -184,7 +183,7 @@ export function createApp() {
     // Mount all page routes
     app.use('/pages', pageRoutes);
 
-    // ── Logs dashboard — API key protected ─────────────────────────────────
+    // ── Logs dashboard — API key protected ──────────────────────────────────
     app.use('/logs', logRoutes);
 
     // ════════════════════════════════════════════════════════════════════════
