@@ -57,6 +57,9 @@ export function createApp() {
             // Zoho widget CDN
             if (origin.endsWith('.zwidgets.com')) return callback(null, true);
 
+            // for zoho widget
+            if (origin.endsWith('.zappsusercontent.in')) return callback(null, true);
+
             // Localhost dev
             if (origin.startsWith('http://localhost') || origin.startsWith('https://localhost')) return callback(null, true);
 
