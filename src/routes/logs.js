@@ -192,4 +192,65 @@ router.get('/data', logsAuth, async (req, res) => {
     }
 });
 
+// ── Alias routes — older dashboard calls these endpoints ────────────────────
+router.get('/api/summary', logsAuth, async (req, res) => {
+    try {
+        const days = Math.min(parseInt(req.query.days || '7', 10), 14);
+        const { combined, http, errors } = await loadLogData(days);
+        const analytics = buildAnalytics(combined, http, errors);
+        res.json({ success: true, data: {
+            period:        `Last ${days} days`,
+            totalRequests: analytics.totals.requests,
+            totalErrors:   analytics.totals.errors,
+            totalLogs:     analytics.totals.allLines,
+            errorRate:     analytics.totals.requests > 0
+                ? ((analytics.totals.errors / analytics.totals.requests) * 100).toFixed(2) + '%'
+                : '0%',
+            lastActivity:  analytics.lastActivity,
+            dailyCounts:   Object.fromEntries(analytics.daily.map(d => [d.date, d.requests])),
+            dailyErrors:   Object.fromEntries(analytics.daily.map(d => [d.date, d.errors])),
+            topUrls:       analytics.topEndpoints.map(e => ({ url: e.path, count: e.count })),
+            levelCounts:   {
+                error: analytics.totals.errors,
+                warn:  analytics.totals.warnings,
+                info:  analytics.totals.info,
+                http:  analytics.totals.requests,
+            },
+            recentErrors:  analytics.recentErrors.slice(0, 10).map(e => ({
+                timestamp: e.timestamp, message: e.message, stack: null,
+            })),
+        }});
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+router.get('/api/entries', logsAuth, async (req, res) => {
+    try {
+        const days  = Math.min(parseInt(req.query.days  || '1',   10), 14);
+        const limit = Math.min(parseInt(req.query.limit || '200', 10), 500);
+        const page  = Math.max(parseInt(req.query.page  || '1',   10), 1);
+        const level  = req.query.level  || '';
+        const search = req.query.search || '';
+
+        const { combined, http } = await loadLogData(days);
+        let entries = [...combined, ...http]
+            .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+
+        if (level)  entries = entries.filter(e => e.level === level);
+        if (search) entries = entries.filter(e =>
+            JSON.stringify(e).toLowerCase().includes(search.toLowerCase()));
+
+        const total  = entries.length;
+        const offset = (page - 1) * limit;
+        res.json({ success: true, data: {
+            total, page, limit,
+            pages:   Math.ceil(total / limit),
+            entries: entries.slice(offset, offset + limit),
+        }});
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 export default router;

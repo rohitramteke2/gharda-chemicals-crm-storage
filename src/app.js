@@ -30,7 +30,9 @@ export function createApp() {
         contentSecurityPolicy: {
             directives: {
                 ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-                'style-src':       ["'self'", "'unsafe-inline'"],
+                'style-src':       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+                'style-src-elem':  ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+                'font-src':        ["'self'", 'https://fonts.gstatic.com'],
                 'script-src':      ["'self'", "'unsafe-inline'", "'unsafe-hashes'"],
                 'script-src-attr': ["'unsafe-inline'"],
                 // Allow Zoho CRM to embed pages in iframe
