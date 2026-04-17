@@ -230,11 +230,15 @@ router.get('/docs/:encryptedId', tokenGate, async (req, res) => {
         // Sign each file URL — expires in 15 min, cannot be guessed
         const BASE        = env.PUBLIC_BASE_URL || 'https://zoho.gharda.com:14443/production';
         const signFileUrl = (filePath) => {
-            const tok = TokenService.generateFileToken(filePath);
-            // filePath may already have %20 encoded spaces from listDownloadedFiles
-            // Use encodeURI (not encodeURIComponent) to avoid double-encoding
-            const encodedPath = filePath.includes('%') ? filePath : encodeURIComponent(filePath);
-            return `${BASE}/pages/storage?path=${encodedPath}&token=${encodeURIComponent(tok)}`;
+            // Always decode first — ensure token is signed with the raw decoded path
+            // Express decodes query params on arrival, so token and received path must both be decoded
+            let rawPath = filePath;
+            try { rawPath = decodeURIComponent(filePath); } catch { rawPath = filePath; }
+
+            const tok = TokenService.generateFileToken(rawPath);
+
+            // Encode for URL — encodeURIComponent handles spaces and special chars
+            return `${BASE}/pages/storage?path=${encodeURIComponent(rawPath)}&token=${encodeURIComponent(tok)}`;
         };
 
         res.send(renderDocsViewer(recordId, folderName, data, signFileUrl));
@@ -266,17 +270,11 @@ router.get('/storage', async (req, res) => {
         return res.status(403).send('Access denied — link expired or invalid.');
     }
 
-    // ── Decode filePath ─────────────────────────────────────────────────────
-    // Express decodes query params once already.
-    // filePath = /storage/Accounts/SAP/field/Screenshot%202025-06-24%20132348.png
-    // We need to decode %20 → space to match actual filename on disk.
-    let decodedPath = filePath;
-    try {
-        // Decode %20 → space etc. to get actual filename
-        decodedPath = decodeURIComponent(filePath);
-    } catch {
-        decodedPath = filePath;
-    }
+    // ── filePath handling ────────────────────────────────────────────────────
+    // Express already decoded the query param once on arrival.
+    // signFileUrl signs the decoded path and encodes it for the URL.
+    // So filePath here = decoded path = what was signed = ready to use directly.
+    const decodedPath = filePath;
 
     // Strip leading /storage/ or storage/
     const relative = decodedPath
