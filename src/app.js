@@ -30,10 +30,16 @@ export function createApp() {
         contentSecurityPolicy: {
             directives: {
                 ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-                'style-src': ["'self'", "'unsafe-inline'"],
+                'style-src':     ["'self'", "'unsafe-inline'"],
+                // Allow Zoho CRM to embed pages in iframe
+                'frame-ancestors': ["*"],
             },
         },
+        // Also disable the legacy X-Frame-Options header
+        // (helmet sets it to SAMEORIGIN by default which also blocks iframes)
+        frameguard: false,
     }));
+    
     // note: blocks everything in pt
     // app.use(cors({ origin: env.isProd() ? [] : '*', methods: ['GET', 'POST'] }));
 
