@@ -123,7 +123,7 @@ function buildAnalytics(combined, http, errors) {
 }
 
 // ── Load log data ────────────────────────────────────────────────────────────
-async function loadLogData(days = 3) {
+async function loadLogData(days = 30) {
     // Normalize LOG_DIR path — handles Windows backslashes from .env
     const rawDir = env.LOG_DIR || './logs';
     const logDir = path.resolve(rawDir.replace(/\\/g, path.sep).replace(/\//g, path.sep));
@@ -179,7 +179,7 @@ router.get('/debug', logsAuth, async (req, res) => {
 // ── GET /logs — HTML dashboard ───────────────────────────────────────────────
 router.get('/', logsAuth, async (req, res) => {
     try {
-        const days = Math.min(parseInt(req.query.days || '3', 10), 14);
+        const days = Math.min(parseInt(req.query.days || '30', 10), 60);
         const { combined, http, errors } = await loadLogData(days);
         const analytics = buildAnalytics(combined, http, errors);
 
@@ -204,7 +204,7 @@ router.get('/', logsAuth, async (req, res) => {
 // ── GET /logs/data — JSON for auto-refresh ───────────────────────────────────
 router.get('/data', logsAuth, async (req, res) => {
     try {
-        const days = Math.min(parseInt(req.query.days || '1', 10), 14);
+        const days = Math.min(parseInt(req.query.days || '30', 10), 60);
         const { combined, http, errors } = await loadLogData(days);
         const analytics = buildAnalytics(combined, http, errors);
 
