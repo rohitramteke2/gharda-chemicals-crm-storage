@@ -1,7 +1,7 @@
-import sql from 'mssql';
+import sql       from 'mssql';
 import SQLService from './SQLService.js';
 import ZohoCRMService from './ZohoCRMService.js';
-import logger from '../utils/logger.js';
+import logger         from '../utils/logger.js';
 
 /**
  * FarmerService
@@ -101,8 +101,8 @@ class FarmerService {
         region_id,
         territory_id,
     } = {}) {
-        const pool = await SQLService.getPool();
-        const limit = Math.min(Number(per_page), 200);
+        const pool   = await SQLService.getPool();
+        const limit  = Math.min(Number(per_page), 200);
         const offset = (Math.max(Number(page), 1) - 1) * limit;
 
         const { conditions, bindings } = this._buildFilters({
@@ -140,8 +140,8 @@ class FarmerService {
             data: dataResult.recordset,
             pagination: {
                 total,
-                page: Number(page),
-                per_page: limit,
+                page:        Number(page),
+                per_page:    limit,
                 total_pages: Math.ceil(total / limit),
             },
         };
@@ -151,7 +151,7 @@ class FarmerService {
     //  GET ONE  —  full details with all JOINs
     // ─────────────────────────────────────────────────────────────────────
     async getById(id) {
-        const pool = await SQLService.getPool();
+        const pool    = await SQLService.getPool();
         const request = pool.request();
         request.input('id', sql.Int, Number(id));
 
@@ -169,14 +169,14 @@ class FarmerService {
     //  (caller already knows the body fields they sent)
     // ─────────────────────────────────────────────────────────────────────
     async create(data) {
-        const pool = await SQLService.getPool();
+        const pool    = await SQLService.getPool();
         const request = pool.request();
 
-        request.input('market_id', sql.SmallInt, data.market_id ? Number(data.market_id) : null);
-        request.input('village_id', sql.Int, data.village_id ? Number(data.village_id) : null);
-        request.input('name', sql.NVarChar(255), String(data.name).trim().slice(0, 255));
-        request.input('mobile', sql.NVarChar(100), data.mobile ? String(data.mobile).slice(0, 100) : null);
-        request.input('category', sql.NVarChar(10), data.category ? String(data.category).slice(0, 10) : null);
+        request.input('market_id',  sql.SmallInt,      data.market_id  ? Number(data.market_id)            : null);
+        request.input('village_id', sql.Int,           data.village_id ? Number(data.village_id)           : null);
+        request.input('name',       sql.NVarChar(255), String(data.name).trim().slice(0, 255));
+        request.input('mobile',     sql.NVarChar(100), data.mobile     ? String(data.mobile).slice(0, 100) : null);
+        request.input('category',   sql.NVarChar(10),  data.category   ? String(data.category).slice(0, 10): null);
 
         const result = await request.query(`
             INSERT INTO dbo.farm_farmers (market_id, village_id, name, mobile, category)
@@ -193,20 +193,20 @@ class FarmerService {
     //  UPDATE
     // ─────────────────────────────────────────────────────────────────────
     async update(id, data) {
-        const pool = await SQLService.getPool();
+        const pool    = await SQLService.getPool();
         const request = pool.request();
 
         const allowed = ['name', 'mobile', 'category', 'market_id', 'village_id'];
-        const fields = Object.keys(data).filter(k => allowed.includes(k));
+        const fields  = Object.keys(data).filter(k => allowed.includes(k));
         if (!fields.length) throw new Error('No valid fields provided for update.');
 
         const setList = fields.map((col, i) => {
             switch (col) {
-                case 'name': request.input(`u${i}`, sql.NVarChar(255), String(data[col]).trim().slice(0, 255)); break;
-                case 'mobile': request.input(`u${i}`, sql.NVarChar(100), data[col] ? String(data[col]).slice(0, 100) : null); break;
-                case 'category': request.input(`u${i}`, sql.NVarChar(10), data[col]); break;
-                case 'market_id': request.input(`u${i}`, sql.SmallInt, Number(data[col])); break;
-                case 'village_id': request.input(`u${i}`, sql.Int, Number(data[col])); break;
+                case 'name':       request.input(`u${i}`, sql.NVarChar(255), String(data[col]).trim().slice(0, 255)); break;
+                case 'mobile':     request.input(`u${i}`, sql.NVarChar(100), data[col] ? String(data[col]).slice(0, 100) : null); break;
+                case 'category':   request.input(`u${i}`, sql.NVarChar(10),  data[col]); break;
+                case 'market_id':  request.input(`u${i}`, sql.SmallInt,      Number(data[col])); break;
+                case 'village_id': request.input(`u${i}`, sql.Int,           Number(data[col])); break;
             }
             return `[${col}] = @u${i}`;
         }).join(', ');
@@ -229,7 +229,7 @@ class FarmerService {
     //  DELETE
     // ─────────────────────────────────────────────────────────────────────
     async remove(id) {
-        const pool = await SQLService.getPool();
+        const pool    = await SQLService.getPool();
         const request = pool.request();
         request.input('id', sql.Int, Number(id));
 
@@ -258,7 +258,7 @@ class FarmerService {
         let page = 1;
         while (true) {
             const { data, info } = await ZohoCRMService.fetchRecords({
-                module: 'Farmers',
+                module:   'Farmers',
                 page,
                 per_page: 200,
             });
@@ -279,39 +279,39 @@ class FarmerService {
             try {
                 const request = pool.request();
 
-                const name = r.Name || r.Farmers_Name || r.Full_Name || null;
-                const email = r.Email || null;
-                const contact = r.Contact_Number || r.Phone || r.Mobile || null;
-                const altContact = r.Alternate_Contact_Number || null;
+                const name        = r.Name || r.Farmers_Name || r.Full_Name || null;
+                const email       = r.Email || null;
+                const contact     = r.Contact_Number || r.Phone || r.Mobile || null;
+                const altContact  = r.Alternate_Contact_Number || null;
                 const landHolding = r.Land_Holding_in_acres != null ? parseFloat(r.Land_Holding_in_acres) : null;
-                const majorCrops = Array.isArray(r.Major_Crops) ? r.Major_Crops.join('; ') : (r.Major_Crops || null);
+                const majorCrops  = Array.isArray(r.Major_Crops) ? r.Major_Crops.join('; ') : (r.Major_Crops || null);
                 const dateOfEntry = r.Date_of_Entry ? new Date(r.Date_of_Entry) : null;
-                const owner = r.Owner?.name || null;
-                const market = typeof r.Market === 'object' ? r.Market?.name : (r.Market || null);
+                const owner       = r.Owner?.name || null;
+                const market      = typeof r.Market === 'object' ? r.Market?.name : (r.Market || null);
 
                 if (!name) { skipped++; continue; }
 
-                request.input('zoho_id', sql.NVarChar(50), r.id);
-                request.input('name', sql.NVarChar(150), name.slice(0, 150));
-                request.input('email', sql.NVarChar(150), email);
-                request.input('contact_number', sql.NVarChar(20), contact);
-                request.input('alternate_contact', sql.NVarChar(20), altContact);
-                request.input('land_holding', sql.Decimal(10, 2), landHolding);
-                request.input('state', sql.NVarChar(100), r.State || null);
-                request.input('region', sql.NVarChar(100), r.Region || null);
-                request.input('zone', sql.NVarChar(100), r.Zone || null);
-                request.input('territory', sql.NVarChar(100), r.Territory_1 || r.Territory || null);
-                request.input('district', sql.NVarChar(100), r.District || null);
-                request.input('taluka', sql.NVarChar(100), r.Taluka || null);
-                request.input('village', sql.NVarChar(100), r.Village || null);
-                request.input('address', sql.NVarChar(500), r.Address || null);
-                request.input('category', sql.NVarChar(10), r.Category || null);
-                request.input('market', sql.NVarChar(100), market);
-                request.input('crop_season', sql.NVarChar(50), r.Crop_Season || null);
-                request.input('major_crops', sql.NVarChar(300), majorCrops);
-                request.input('liq_agent', sql.NVarChar(150), r.Liquidation_Agent || null);
-                request.input('date_of_entry', sql.DateTime2, dateOfEntry);
-                request.input('owner', sql.NVarChar(100), owner);
+                request.input('zoho_id',          sql.NVarChar(50),   r.id);
+                request.input('name',             sql.NVarChar(150),  name.slice(0, 150));
+                request.input('email',            sql.NVarChar(150),  email);
+                request.input('contact_number',   sql.NVarChar(20),   contact);
+                request.input('alternate_contact',sql.NVarChar(20),   altContact);
+                request.input('land_holding',     sql.Decimal(10,2),  landHolding);
+                request.input('state',            sql.NVarChar(100),  r.State || null);
+                request.input('region',           sql.NVarChar(100),  r.Region || null);
+                request.input('zone',             sql.NVarChar(100),  r.Zone || null);
+                request.input('territory',        sql.NVarChar(100),  r.Territory_1 || r.Territory || null);
+                request.input('district',         sql.NVarChar(100),  r.District || null);
+                request.input('taluka',           sql.NVarChar(100),  r.Taluka || null);
+                request.input('village',          sql.NVarChar(100),  r.Village || null);
+                request.input('address',          sql.NVarChar(500),  r.Address || null);
+                request.input('category',         sql.NVarChar(10),   r.Category || null);
+                request.input('market',           sql.NVarChar(100),  market);
+                request.input('crop_season',      sql.NVarChar(50),   r.Crop_Season || null);
+                request.input('major_crops',      sql.NVarChar(300),  majorCrops);
+                request.input('liq_agent',        sql.NVarChar(150),  r.Liquidation_Agent || null);
+                request.input('date_of_entry',    sql.DateTime2,      dateOfEntry);
+                request.input('owner',            sql.NVarChar(100),  owner);
 
                 const result = await request.query(`
                     MERGE dbo.farm_farmers AS target
@@ -361,7 +361,7 @@ class FarmerService {
 
     _buildFilters({ name, mobile, category, market_id, village_id, state_id, zone_id, region_id, territory_id }) {
         const conditions = [];
-        const bindings = [];
+        const bindings   = [];
 
         if (name) {
             conditions.push(`ff.name LIKE @name`);
