@@ -21,7 +21,7 @@ import logger from '../utils/logger.js';
 class StorageService extends IStorageService {
     constructor() {
         super();
-        this._base = path.resolve(env.STORAGE_BASE_PATH);
+        this._base = path.resolve(env.STORAGE_BASE_PATH || env.ATTACHMENT_DIR || './storage');
     }
 
     _moduleDir(module)   { return path.join(this._base, module); }

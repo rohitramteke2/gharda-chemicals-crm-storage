@@ -13,19 +13,20 @@
         "compression": "^1.7.5",
         "cors": "^2.8.5",
         "cross-env": "^7.0.3",
+        "csv-parser": "^3.0.0",
         "dotenv": "^16.4.7",
         "express": "^4.21.2",
         "express-rate-limit": "^7.5.0",
         "form-data": "^4.0.1",
         "fs-extra": "^11.2.0",
         "helmet": "^8.0.0",
+        "joi": "^18.1.2",
         "morgan": "^1.10.0",
+        "mssql": "^10.0.4",
         "multer": "^1.4.5-lts.1",
         "node-cache": "^5.1.2",
         "uuid": "^11.1.0",
         "winston": "^3.17.0",
-        "winston-daily-rotate-file": "^5.0.0",
-        "mssql": "^10.0.4",
-        "csv-parser": "^3.0.0"
+        "winston-daily-rotate-file": "^5.0.0"
     }
 }
