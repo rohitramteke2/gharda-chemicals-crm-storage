@@ -270,8 +270,8 @@ function layout(title, breadcrumbs, bodyHtml) {
 export function renderDashboard(accounts = []) {
     const totalFiles = accounts.reduce((s, a) => s + a.fileCount, 0);
     const totalSize  = accounts.reduce((s, a) => s + a.totalSize, 0);
+    const withFiles  = accounts.filter(a => a.fileCount > 0).length;
 
-    // Serialize rows for client-side JS — done server-side, no template issues
     const rowsJson = JSON.stringify(accounts.map(a => ({
         sapId:     a.sapId,
         fileCount: a.fileCount,
@@ -279,214 +279,280 @@ export function renderDashboard(accounts = []) {
         href:      `/pages/accounts/${encodeURIComponent(a.sapId)}`,
     })));
 
-    const emptyState = accounts.length === 0 ? `
-        <div class="empty">
-            <div class="empty-icon">📂</div>
-            <div class="empty-title">No accounts synced yet</div>
-            <p class="text-sm">Use <code class="mono">POST /api/v1/accounts/sync</code> to sync approved accounts.</p>
-        </div>` : '';
-
-    const tableHtml = accounts.length > 0 ? `
-        <div class="card" style="padding:0;overflow:hidden;">
-
-            <!-- Toolbar -->
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap;">
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span style="font-size:13px;color:var(--text-muted);">Show</span>
-                    <select id="perPageSel" onchange="setPerPage(this.value)"
-                        style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
-                               padding:5px 10px;font-size:13px;color:var(--text);cursor:pointer;outline:none;">
-                        <option value="10">10</option>
-                        <option value="20">20</option>
-                        <option value="25" selected>25</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                    </select>
-                    <span style="font-size:13px;color:var(--text-muted);">entries</span>
-                </div>
-                <div style="position:relative;">
-                    <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);"
-                         width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                    </svg>
-                    <input id="searchInput" type="text" placeholder="Search SAP ID..."
-                        oninput="applyFilter()"
-                        style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
-                               padding:6px 12px 6px 34px;font-size:13px;color:var(--text);
-                               font-family:var(--font);outline:none;width:220px;transition:border-color .2s;"
-                        onfocus="this.style.borderColor='var(--accent)'"
-                        onblur="this.style.borderColor='var(--border)'"
-                    />
-                </div>
-            </div>
-
-            <!-- Table -->
-            <div class="table-wrap">
-                <table id="accountTable">
-                    <thead>
-                        <tr>
-                            <th onclick="sortBy('sapId')" style="cursor:pointer;">
-                                SAP ID <span id="sort-sapId">↕</span>
-                            </th>
-                            <th onclick="sortBy('fileCount')" style="cursor:pointer;">
-                                Files <span id="sort-fileCount">↕</span>
-                            </th>
-                            <th onclick="sortBy('totalSize')" style="cursor:pointer;">
-                                Size <span id="sort-totalSize">↕</span>
-                            </th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tableBody"></tbody>
-                </table>
-            </div>
-
-            <!-- Pagination footer -->
-            <div style="display:flex;align-items:center;justify-content:space-between;
-                        padding:12px 20px;border-top:1px solid var(--border);flex-wrap:wrap;gap:8px;">
-                <div id="pageInfo" style="font-size:13px;color:var(--text-muted);"></div>
-                <div id="pageBtns" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
-            </div>
-        </div>` : '';
-
     const body = `
-        <h1 style="font-size:24px;margin-bottom:8px;">Accounts — File Manager</h1>
-        <p class="text-muted text-sm" style="margin-bottom:28px;">
-            Browse and download files synced from Zoho CRM File Upload fields (Distributor layout).
-        </p>
-        <div class="stats">
-            <div class="stat-card">
-                <div class="stat-value">${accounts.length}</div>
-                <div class="stat-label">Accounts Synced</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value">${totalFiles}</div>
-                <div class="stat-label">Total Files</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value">${formatSize(totalSize)}</div>
-                <div class="stat-label">Total Size</div>
-            </div>
-        </div>
-        ${emptyState}
-        ${tableHtml}
-        <script id="dashData" type="application/json">${rowsJson}</script>
-    `;
+<style>
+    :root {
+        --bg:#111210;--bg2:#171815;--bg3:#1e1f1c;
+        --line:#2a2b27;--line2:#333430;
+        --text:#e8e6df;--dim:#7a7870;--faint:#4a4a46;
+        --amber:#c8a96e;--amber2:#e8c87a;
+        --green:#6aaf7a;--red:#d4645a;--blue:#6a9fd4;
+        --mono:'JetBrains Mono',monospace;
+        --sans:'Instrument Sans',-apple-system,sans-serif;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+    a{color:inherit;text-decoration:none}
 
-    // ── Inline script — kept separate from template literal to avoid </script> parsing issue ──
+    /* Topbar */
+    .tb{height:48px;background:var(--bg2);border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 24px;gap:0;position:sticky;top:0;z-index:50}
+    .tb-brand{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--amber);letter-spacing:.08em;padding-right:20px;margin-right:20px;border-right:1px solid var(--line)}
+    .tb-title{font-size:13px;font-weight:500;color:var(--dim);flex:1}
+    .tb-nav{display:flex;gap:0}
+    .tb-nav a{font-size:12px;color:var(--faint);padding:0 14px;height:48px;display:flex;align-items:center;border-right:1px solid var(--line);transition:color .15s}
+    .tb-nav a:hover{color:var(--text)}
+    .tb-nav a.on{color:var(--amber)}
+
+    /* Wrap */
+    .wrap{max-width:1100px;margin:0 auto;padding:28px 24px 60px}
+
+    /* Stat strip */
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-bottom:24px}
+    .stat{padding:18px 22px;border-right:1px solid var(--line);position:relative}
+    .stat:last-child{border-right:none}
+    .stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--sc,var(--line2))}
+    .stat-n{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1;color:var(--sv,var(--text));margin-bottom:6px}
+    .stat-l{font-size:11px;color:var(--dim);letter-spacing:.04em;text-transform:uppercase}
+
+    /* Table card */
+    .tcard{background:var(--bg2);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+
+    /* Toolbar */
+    .toolbar{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .srch-wrap{position:relative;flex:1;min-width:180px}
+    .srch-ico{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--faint)}
+    .srch{width:100%;background:var(--bg3);border:1px solid var(--line2);border-radius:4px;padding:6px 10px 6px 32px;color:var(--text);font-size:12px;font-family:var(--mono);outline:none}
+    .srch:focus{border-color:var(--amber)}
+    .srch::placeholder{color:var(--faint)}
+    .pp-wrap{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim);font-family:var(--mono)}
+    .pp-sel{background:var(--bg3);border:1px solid var(--line2);border-radius:4px;padding:5px 8px;color:var(--text);font-size:11px;font-family:var(--mono);outline:none;cursor:pointer}
+    .pp-sel:focus{border-color:var(--amber)}
+    .filter-info{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:auto}
+
+    /* Table */
+    .tbl-wrap{overflow-x:auto;max-height:580px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    thead th{
+        padding:8px 14px;text-align:left;
+        font-size:10px;font-weight:500;color:var(--faint);
+        letter-spacing:.08em;text-transform:uppercase;
+        border-bottom:1px solid var(--line);
+        background:var(--bg3);
+        position:sticky;top:0;z-index:2;
+        cursor:pointer;user-select:none;white-space:nowrap;
+    }
+    thead th:hover{color:var(--dim)}
+    thead th.sorted{color:var(--amber)}
+    tbody td{padding:10px 14px;border-bottom:1px solid rgba(42,43,39,.5);vertical-align:middle}
+    tbody tr:last-child td{border-bottom:none}
+    tbody tr:hover td{background:var(--bg3)}
+    .sap-link{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--blue);transition:color .12s}
+    .sap-link:hover{color:var(--amber)}
+    .fc-badge{
+        display:inline-flex;align-items:center;
+        padding:2px 9px;border-radius:3px;
+        font-family:var(--mono);font-size:10px;font-weight:600;
+    }
+    .fc-has{background:rgba(106,175,122,.15);color:var(--green)}
+    .fc-nil{background:rgba(74,74,70,.2);color:var(--faint)}
+    .sz{font-family:var(--mono);font-size:11px;color:var(--dim)}
+    .browse-btn{
+        padding:4px 12px;border-radius:3px;
+        border:1px solid var(--line2);background:transparent;
+        color:var(--dim);font-size:11px;font-family:var(--mono);
+        cursor:pointer;transition:.12s;
+    }
+    .browse-btn:hover{border-color:var(--amber);color:var(--amber)}
+
+    /* Pagination */
+    .pagi{padding:10px 16px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+    .pagi-info{font-family:var(--mono);font-size:11px;color:var(--faint)}
+    .pagi-btns{display:flex;gap:4px}
+    .pb{
+        padding:4px 9px;border-radius:3px;
+        border:1px solid var(--line2);background:var(--bg3);
+        color:var(--dim);font-size:11px;font-family:var(--mono);
+        cursor:pointer;transition:.12s;
+    }
+    .pb:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
+    .pb.cur{background:var(--amber);border-color:var(--amber);color:#111;font-weight:600}
+    .pb:disabled{opacity:.3;cursor:default}
+
+    /* Empty */
+    .nil{padding:40px;text-align:center;font-size:12px;color:var(--faint);font-family:var(--mono)}
+
+    /* Fade in */
+    .wrap>*{animation:fu .2s ease both}
+    .stats{animation-delay:.04s}
+    .tcard{animation-delay:.1s}
+    @keyframes fu{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+</style>
+
+<div class="tb">
+    <div class="tb-brand">GHARDA</div>
+    <div class="tb-title">File Manager</div>
+    <nav class="tb-nav">
+        <a href="/pages/accounts" class="on">Accounts</a>
+        <a href="/pages/docs">API Docs</a>
+        <a href="/health">Health</a>
+        <a href="/debug/zoho">Debug</a>
+    </nav>
+</div>
+
+<div class="wrap">
+
+    <div class="stats">
+        <div class="stat" style="--sc:var(--blue);--sv:var(--blue)">
+            <div class="stat-n">${accounts.length}</div>
+            <div class="stat-l">Accounts Synced</div>
+        </div>
+        <div class="stat" style="--sc:var(--green);--sv:var(--green)">
+            <div class="stat-n">${withFiles}</div>
+            <div class="stat-l">With Files</div>
+        </div>
+        <div class="stat" style="--sc:var(--amber)">
+            <div class="stat-n">${totalFiles}</div>
+            <div class="stat-l">Total Files</div>
+        </div>
+        <div class="stat">
+            <div class="stat-n" style="font-size:18px;margin-top:4px">${formatSize(totalSize)}</div>
+            <div class="stat-l">Total Size</div>
+        </div>
+    </div>
+
+    <div class="tcard">
+        <div class="toolbar">
+            <div class="srch-wrap">
+                <svg class="srch-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input class="srch" id="srch" type="text" placeholder="search sap id…" oninput="applyFilter()">
+            </div>
+            <div class="pp-wrap">
+                show
+                <select class="pp-sel" id="ppSel" onchange="setPerPage(this.value)">
+                    <option value="20">20</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                </select>
+                per page
+            </div>
+            <div class="filter-info" id="finfo"></div>
+        </div>
+        <div class="tbl-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th onclick="sortBy('sapId')">SAP ID <span id="si">↕</span></th>
+                        <th onclick="sortBy('fileCount')">Files <span id="sf">↕</span></th>
+                        <th onclick="sortBy('totalSize')">Size <span id="ss">↕</span></th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody"></tbody>
+            </table>
+        </div>
+        <div class="pagi">
+            <div class="pagi-info" id="pginfo"></div>
+            <div class="pagi-btns" id="pgbtns"></div>
+        </div>
+    </div>
+
+</div>
+
+<script id="dd" type="application/json">${rowsJson}</script>
+`;
+
     const script = `
 <script>
-(function() {
-    var ALL_ROWS  = JSON.parse(document.getElementById('dashData').textContent);
-    var filtered  = ALL_ROWS.slice();
-    var curPage   = 1;
-    var perPage   = 25;
-    var sortKey   = null;
-    var sortDir   = 1;
+(function(){
+    var R=JSON.parse(document.getElementById('dd').textContent);
+    var F=R.slice(),pg=1,pp=50,sk=null,sd=1;
 
-    function fmtSize(b) {
-        if (!b) return '0 B';
-        var u = ['B','KB','MB','GB'], i = Math.floor(Math.log(b) / Math.log(1024));
-        return (b / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + u[i];
-    }
+    function sz(b){if(!b)return '0 B';var u=['B','KB','MB','GB'],i=Math.floor(Math.log(b)/Math.log(1024));return (b/Math.pow(1024,i)).toFixed(i>0?1:0)+' '+u[i];}
 
-    window.applyFilter = function() {
-        var q = document.getElementById('searchInput').value.toLowerCase().trim();
-        filtered = ALL_ROWS.filter(function(r) { return !q || r.sapId.toLowerCase().indexOf(q) !== -1; });
-        curPage = 1;
-        render();
+    window.applyFilter=function(){
+        var q=document.getElementById('srch').value.toLowerCase().trim();
+        F=R.filter(function(r){return !q||r.sapId.toLowerCase().indexOf(q)!==-1;});
+        pg=1;render();
     };
 
-    window.setPerPage = function(v) {
-        perPage = Number(v);
-        curPage = 1;
-        render();
-    };
+    window.setPerPage=function(v){pp=Number(v);pg=1;render();};
 
-    window.sortBy = function(key) {
-        if (sortKey === key) { sortDir *= -1; } else { sortKey = key; sortDir = 1; }
-        ['sapId','fileCount','totalSize'].forEach(function(k) {
-            var el = document.getElementById('sort-' + k);
-            if (el) el.textContent = k === sortKey ? (sortDir === 1 ? ' ↑' : ' ↓') : ' ↕';
+    window.sortBy=function(k){
+        if(sk===k)sd*=-1;else{sk=k;sd=1;}
+        ['sapId','fileCount','totalSize'].forEach(function(x){
+            var el=document.getElementById(x==='sapId'?'si':x==='fileCount'?'sf':'ss');
+            if(el)el.textContent=x===sk?(sd===1?' ↑':' ↓'):' ↕';
         });
-        filtered.sort(function(a, b) {
-            var av = a[key], bv = b[key];
-            return (typeof av === 'string' ? av.localeCompare(bv) : av - bv) * sortDir;
-        });
-        curPage = 1;
-        render();
+        var th=document.querySelectorAll('thead th');
+        th.forEach(function(t){t.classList.remove('sorted')});
+        var idx={sapId:0,fileCount:1,totalSize:2}[k];
+        if(th[idx])th[idx].classList.add('sorted');
+        F.sort(function(a,b){var av=a[k],bv=b[k];return(typeof av==='string'?av.localeCompare(bv):av-bv)*sd;});
+        pg=1;render();
     };
 
-    window.goPage = function(p) {
-        var tp = Math.ceil(filtered.length / perPage);
-        if (p < 1 || p > tp) return;
-        curPage = p;
-        render();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+    window.goPage=function(p){var tp=Math.ceil(F.length/pp);if(p<1||p>tp)return;pg=p;render();window.scrollTo({top:0,behavior:'smooth'});};
 
-    function render() {
-        var total = filtered.length;
-        var tp    = Math.max(1, Math.ceil(total / perPage));
-        curPage   = Math.min(curPage, tp);
-        var start = (curPage - 1) * perPage;
-        var page  = filtered.slice(start, start + perPage);
+    function render(){
+        var tot=F.length,tp=Math.max(1,Math.ceil(tot/pp));
+        pg=Math.min(pg,tp);
+        var st=(pg-1)*pp,slice=F.slice(st,st+pp);
+        var tb=document.getElementById('tbody');if(!tb)return;
 
-        var tbody = document.getElementById('tableBody');
-        if (!tbody) return;
-
-        if (page.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted);">No accounts found</td></tr>';
+        if(slice.length===0){
+            tb.innerHTML='<tr><td colspan="4" class="nil">no accounts found</td></tr>';
         } else {
-            tbody.innerHTML = page.map(function(a) {
-                var badge = a.fileCount > 0
-                    ? '<span class="badge badge-ok">' + a.fileCount + ' files</span>'
-                    : '<span class="badge badge-empty">Empty</span>';
+            tb.innerHTML=slice.map(function(a){
+                var badge=a.fileCount>0
+                    ?'<span class="fc-badge fc-has">'+a.fileCount+' files</span>'
+                    :'<span class="fc-badge fc-nil">empty</span>';
                 return '<tr>'
-                    + '<td><a href="' + a.href + '" style="font-weight:600;">' + a.sapId + '</a></td>'
-                    + '<td>' + badge + '</td>'
-                    + '<td class="text-muted text-sm">' + fmtSize(a.totalSize) + '</td>'
-                    + '<td><a href="' + a.href + '" class="btn btn-secondary" style="padding:6px 14px;font-size:12px;">Browse Files &rarr;</a></td>'
-                    + '</tr>';
+                    +'<td><a class="sap-link" href="'+a.href+'">'+a.sapId+'</a></td>'
+                    +'<td>'+badge+'</td>'
+                    +'<td class="sz">'+sz(a.totalSize)+'</td>'
+                    +'<td><button class="browse-btn" onclick="location.href=\''+a.href+'\' ">browse →</button></td>'
+                    +'</tr>';
             }).join('');
         }
 
-        var from = total === 0 ? 0 : start + 1;
-        var to   = Math.min(start + perPage, total);
-        document.getElementById('pageInfo').textContent = 'Showing ' + from + '–' + to + ' of ' + total + ' accounts';
+        var from=tot===0?0:st+1,to=Math.min(st+pp,tot);
+        document.getElementById('pginfo').textContent=from+'–'+to+' of '+tot+' accounts';
+        document.getElementById('finfo').textContent=tot!==R.length?'filtered from '+R.length:'';
 
-        var html = '';
-        var btnBase = 'padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit;';
-
-        html += '<button onclick="goPage(' + (curPage - 1) + ')" ' + (curPage === 1 ? 'disabled' : '') + ' style="' + btnBase + 'border:1px solid var(--border);background:var(--surface-2);color:var(--text);opacity:' + (curPage === 1 ? '.4' : '1') + ';">&#8249; Prev</button>';
-
-        var range = [];
-        for (var p = 1; p <= tp; p++) {
-            if (p === 1 || p === tp || (p >= curPage - 2 && p <= curPage + 2)) range.push(p);
-        }
-        var prev = null;
-        range.forEach(function(p) {
-            if (prev !== null && p - prev > 1) {
-                html += '<button disabled style="' + btnBase + 'border:1px solid var(--border);background:var(--surface-2);color:var(--text-muted);">…</button>';
-            }
-            var active = p === curPage;
-            html += '<button onclick="goPage(' + p + ')" style="' + btnBase + 'border:1px solid ' + (active ? 'var(--accent)' : 'var(--border)') + ';background:' + (active ? 'var(--accent)' : 'var(--surface-2)') + ';color:' + (active ? '#fff' : 'var(--text)') + ';">' + p + '</button>';
-            prev = p;
+        var html='',base='';
+        html+='<button class="pb" onclick="goPage('+(pg-1)+')" '+(pg===1?'disabled':'')+'">‹ prev</button>';
+        var prev=null;
+        var range=[];
+        for(var p=1;p<=tp;p++){if(p===1||p===tp||(p>=pg-2&&p<=pg+2))range.push(p);}
+        range.forEach(function(p){
+            if(prev!==null&&p-prev>1)html+='<button class="pb" disabled>…</button>';
+            html+='<button class="pb'+(p===pg?' cur':'')+'" onclick="goPage('+p+')">'+p+'</button>';
+            prev=p;
         });
-
-        html += '<button onclick="goPage(' + (curPage + 1) + ')" ' + (curPage === tp ? 'disabled' : '') + ' style="' + btnBase + 'border:1px solid var(--border);background:var(--surface-2);color:var(--text);opacity:' + (curPage === tp ? '.4' : '1') + ';">Next &#8250;</button>';
-
-        document.getElementById('pageBtns').innerHTML = html;
+        html+='<button class="pb" onclick="goPage('+(pg+1)+')" '+(pg===tp?'disabled':'')+'">next ›</button>';
+        document.getElementById('pgbtns').innerHTML=html;
     }
 
     render();
 })();
 </script>`;
 
-    return layout('Accounts', [
-        { label: 'Home', href: '/pages/accounts' },
-        { label: 'Accounts' },
-    ], body + script);
+    // Return standalone page (not using layout wrapper — has its own topbar/styles)
+    return \`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accounts — Gharda CRM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+\${body}
+\${script}
+</body>
+</html>\`;
 }
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE: Account Detail — Browse files for a specific account
