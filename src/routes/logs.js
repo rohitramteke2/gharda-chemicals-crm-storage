@@ -124,9 +124,11 @@ function buildAnalytics(combined, http, errors) {
 
 // ── Load log data ────────────────────────────────────────────────────────────
 async function loadLogData(days = 3) {
-    const logDir = path.resolve(env.LOG_DIR);
-    const today  = new Date();
+    // Normalize LOG_DIR path — handles Windows backslashes from .env
+    const rawDir = env.LOG_DIR || './logs';
+    const logDir = path.resolve(rawDir.replace(/\\/g, path.sep).replace(/\//g, path.sep));
 
+    const today = new Date();
     const combined = [];
     const http     = [];
     const errors   = [];
@@ -134,7 +136,11 @@ async function loadLogData(days = 3) {
     for (let i = 0; i < days; i++) {
         const d = new Date(today);
         d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().slice(0, 10); // YYYY-MM-DD
+        // Format date as YYYY-MM-DD using local time (not UTC) to match log filenames
+        const year  = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day   = String(d.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
 
         const [c, h, e] = await Promise.all([
             parseLogFile(path.join(logDir, `combined-${dateStr}.log`)),
@@ -148,6 +154,27 @@ async function loadLogData(days = 3) {
 
     return { combined, http, errors };
 }
+
+// ── GET /logs/debug — check what files exist ────────────────────────────────
+router.get('/debug', logsAuth, async (req, res) => {
+    const rawDir = env.LOG_DIR || './logs';
+    const logDir = path.resolve(rawDir.replace(/\\/g, path.sep).replace(/\//g, path.sep));
+    const exists = fs.existsSync(logDir);
+    let files = [];
+    if (exists) {
+        try { files = fs.readdirSync(logDir).filter(f => f.endsWith('.log')).sort().reverse().slice(0, 20); }
+        catch(e) { files = ['error: ' + e.message]; }
+    }
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    res.json({
+        LOG_DIR_raw:  rawDir,
+        LOG_DIR_resolved: logDir,
+        dirExists:    exists,
+        todayDate:    dateStr,
+        files,
+    });
+});
 
 // ── GET /logs — HTML dashboard ───────────────────────────────────────────────
 router.get('/', logsAuth, async (req, res) => {
