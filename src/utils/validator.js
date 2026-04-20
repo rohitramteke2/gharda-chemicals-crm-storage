@@ -22,8 +22,27 @@ const crmSyncSchema = Joi.object({
 export const validate = (schema, data, options = {}) =>
     schema.validate(data, { abortEarly: false, stripUnknown: true, ...options });
 
+// ── SQL schemas ──────────────────────────────────────────────────────────────
+
+const sqlQuerySchema = Joi.object({
+    table:  Joi.string().max(128).required(),
+    where:  Joi.object().optional(),
+    limit:  Joi.number().integer().min(1).max(5000).default(100),
+    offset: Joi.number().integer().min(0).default(0),
+});
+
+const sqlInsertSchema = Joi.object({
+    table: Joi.string().max(128).required(),
+    data:  Joi.alternatives().try(
+        Joi.array().items(Joi.object()).min(1),
+        Joi.object()
+    ).required(),
+});
+
 export const schemas = {
     pagination: paginationSchema,
     crmFetch:   crmFetchSchema,
     crmSync:    crmSyncSchema,
+    sqlQuery:   sqlQuerySchema,
+    sqlInsert:  sqlInsertSchema,
 };
