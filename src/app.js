@@ -15,10 +15,11 @@ import { ipWhitelist } from './middleware/ipWhitelist.js';
 import auth from './services/ZohoAuthService.js';
 
 import accountRoutes from './routes/accounts.js';
+import sqlRoutes     from './routes/sql.js';
 import farmerRoutes from './routes/farmers.js';
 import pageRoutes from './routes/pages.js';
 import logRoutes   from './routes/logs.js';
-import { renderError } from './views/pages.js';
+import { renderError, renderHealthPage } from './views/pages.js';
 
 export function createApp() {
     const app = express();
@@ -98,13 +99,21 @@ export function createApp() {
     // ════════════════════════════════════════════════════════════════════════
 
     // Health check
-    app.get('/health', (_req, res) => {
-        res.json({
-            status: 'ok',
-            version: env.API_VERSION,
-            env: env.NODE_ENV,
+    app.get('/health', (req, res) => {
+        const wantsHtml = req.headers?.accept?.includes('text/html');
+        const data = {
+            status:    'ok',
+            version:   env.API_VERSION,
+            env:       env.NODE_ENV,
             timestamp: new Date().toISOString(),
-        });
+            uptime:    Math.floor(process.uptime()) + 's',
+            memory:    Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB',
+            node:      process.version,
+        };
+        if (wantsHtml) {
+            return res.send(renderHealthPage(data));
+        }
+        res.json(data);
     });
 
     // Root → File Manager dashboard
@@ -198,6 +207,7 @@ export function createApp() {
     // ── Accounts — all endpoints ─────────────────────────────────────────────
     app.use(`${prefix}/accounts`, accountRoutes);
     app.use(`${prefix}/farmers`, farmerRoutes);
+    app.use(`${prefix}/sql`,     sqlRoutes);
 
     // ── 404 ──────────────────────────────────────────────────────────────────
     app.use((req, res) => {
