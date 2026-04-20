@@ -539,7 +539,7 @@ export function renderDashboard(accounts = []) {
 </script>`;
 
     // Return standalone page (not using layout wrapper — has its own topbar/styles)
-    return \`<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -549,10 +549,10 @@ export function renderDashboard(accounts = []) {
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-\${body}
-\${script}
+${body}
+${script}
 </body>
-</html>\`;
+</html>`;
 }
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE: Account Detail — Browse files for a specific account
