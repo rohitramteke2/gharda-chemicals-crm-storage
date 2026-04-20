@@ -39,10 +39,23 @@ const sqlInsertSchema = Joi.object({
     ).required(),
 });
 
+const sqlUpdateSchema = Joi.object({
+    table: Joi.string().max(128).required(),
+    data:  Joi.object().min(1).required(),
+    where: Joi.object().min(1).required(),  // where is mandatory — no full-table updates
+});
+
+const sqlDeleteSchema = Joi.object({
+    table: Joi.string().max(128).required(),
+    where: Joi.object().min(1).required(),  // where is mandatory — no full-table deletes
+});
+
 export const schemas = {
     pagination: paginationSchema,
     crmFetch:   crmFetchSchema,
     crmSync:    crmSyncSchema,
     sqlQuery:   sqlQuerySchema,
     sqlInsert:  sqlInsertSchema,
+    sqlUpdate:  sqlUpdateSchema,
+    sqlDelete:  sqlDeleteSchema,
 };

@@ -4,9 +4,11 @@ import { strictLimiter } from '../middleware/rateLimiter.js';
 
 const router = Router();
 
-router.get('/query',                  SQLController.queryTable.bind(SQLController));
-router.post('/insert',  strictLimiter, SQLController.insertData.bind(SQLController));
+router.get('/query',                   SQLController.queryTable.bind(SQLController));
+router.post('/insert',   strictLimiter, SQLController.insertData.bind(SQLController));
+router.patch('/update',  strictLimiter, SQLController.updateData.bind(SQLController));
+router.delete('/delete', strictLimiter, SQLController.deleteData.bind(SQLController));
 router.post('/import/:module', strictLimiter, SQLController.importFromStorage.bind(SQLController));
-router.get('/health',                 SQLController.health.bind(SQLController));
+router.get('/health',                  SQLController.health.bind(SQLController));
 
 export default router;
