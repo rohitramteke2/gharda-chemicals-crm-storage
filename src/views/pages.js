@@ -586,7 +586,7 @@ export function renderDashboard(accounts = []) {
                     +'<td><a class="sap-link" href="'+a.href+'">'+a.sapId+'</a></td>'
                     +'<td>'+badge+'</td>'
                     +'<td class="sz">'+sz(a.totalSize)+'</td>'
-                    +'<td><button class="browse-btn" onclick="location.href=\''+a.href+'\' ">browse →</button></td>'
+                    +'<td><a class="browse-btn" href="'+a.href+'">browse →</a></td>'
                     +'</tr>';
             }).join('');
         }
@@ -596,7 +596,7 @@ export function renderDashboard(accounts = []) {
         document.getElementById('finfo').textContent=tot!==R.length?'filtered from '+R.length:'';
 
         var html='',base='';
-        html+='<button class="pb" onclick="goPage('+(pg-1)+')" '+(pg===1?'disabled':'')+'">‹ prev</button>';
+        html+='<button class="pb" onclick="goPage('+(pg-1)+')'+(pg===1?' disabled':'')+'>‹ prev</button>';
         var prev=null;
         var range=[];
         for(var p=1;p<=tp;p++){if(p===1||p===tp||(p>=pg-2&&p<=pg+2))range.push(p);}
@@ -605,7 +605,7 @@ export function renderDashboard(accounts = []) {
             html+='<button class="pb'+(p===pg?' cur':'')+'" onclick="goPage('+p+')">'+p+'</button>';
             prev=p;
         });
-        html+='<button class="pb" onclick="goPage('+(pg+1)+')" '+(pg===tp?'disabled':'')+'">next ›</button>';
+        html+='<button class="pb" onclick="goPage('+(pg+1)+')'+(pg===tp?' disabled':'')+'>next ›</button>';
         document.getElementById('pgbtns').innerHTML=html;
     }
 
