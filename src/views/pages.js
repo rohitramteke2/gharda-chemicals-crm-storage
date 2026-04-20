@@ -10,20 +10,20 @@
 const BASE_CSS = `
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
-        --bg:          #0f1117;
-        --surface:     #1a1d27;
-        --surface-2:   #242836;
-        --border:      #2e3346;
-        --text:        #e4e6ef;
-        --text-muted:  #8b8fa3;
-        --accent:      #4f8fff;
-        --accent-glow: rgba(79, 143, 255, 0.15);
-        --green:       #34d399;
-        --red:         #f87171;
-        --orange:      #fbbf24;
-        --radius:      10px;
-        --font:        'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-        --mono:        'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+        --bg:          #f7f6f3;
+        --surface:     #ffffff;
+        --surface-2:   #f0efe9;
+        --border:      #e2e0d8;
+        --text:        #1a1916;
+        --text-muted:  #78756a;
+        --accent:      #b07d3a;
+        --accent-glow: rgba(176, 125, 58, 0.12);
+        --green:       #2d7a3e;
+        --red:         #b83c35;
+        --orange:      #b86b2a;
+        --radius:      6px;
+        --font:        'Instrument Sans', 'Segoe UI', -apple-system, sans-serif;
+        --mono:        'JetBrains Mono', 'Fira Code', Consolas, monospace;
     }
     body {
         font-family: var(--font);
@@ -178,6 +178,81 @@ const BASE_CSS = `
 `;
 
 
+// ════════════════════════════════════════════════════════════════════════════
+//  PAGE: Health Check
+// ════════════════════════════════════════════════════════════════════════════
+
+export function renderHealthPage(data = {}) {
+    const isOk = data.status === 'ok';
+    const rows = [
+        { k: 'status',    v: data.status,    hi: isOk },
+        { k: 'version',   v: data.version    },
+        { k: 'env',       v: data.env        },
+        { k: 'node',      v: data.node       },
+        { k: 'uptime',    v: data.uptime     },
+        { k: 'memory',    v: data.memory     },
+        { k: 'timestamp', v: data.timestamp  },
+    ].filter(r => r.v !== undefined);
+
+    const rowsHtml = rows.map(r => `
+        <div class="row">
+            <div class="key">${r.k}</div>
+            <div class="val${r.hi ? ' ok' : ''}">${escapeHtml(String(r.v))}</div>
+        </div>`).join('');
+
+    const body = `
+        <style>
+            .health-card{
+                background:var(--surface);border:1px solid var(--border);
+                border-radius:var(--radius);overflow:hidden;
+                max-width:560px;margin:0 auto;
+            }
+            .health-head{
+                padding:16px 20px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;gap:12px;
+            }
+            .status-badge{
+                display:inline-flex;align-items:center;gap:6px;
+                padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;
+            }
+            .status-badge.ok{background:rgba(106,175,122,.15);color:var(--green)}
+            .status-badge.err{background:rgba(212,100,90,.15);color:var(--red)}
+            .pulse{width:6px;height:6px;border-radius:50%;background:currentColor;animation:hb 2s ease infinite}
+            @keyframes hb{0%,100%{opacity:1}50%{opacity:.3}}
+            .health-title{font-size:15px;font-weight:600}
+            .row{
+                display:flex;align-items:center;
+                padding:11px 20px;border-bottom:1px solid var(--border);
+                font-size:13px;
+            }
+            .row:last-child{border-bottom:none}
+            .key{font-family:var(--mono);font-size:11px;color:var(--text-muted);width:110px;flex-shrink:0}
+            .val{font-family:var(--mono);font-size:12px;color:var(--text)}
+            .val.ok{color:var(--green);font-weight:600}
+            .ts{margin-top:20px;text-align:center;font-size:11px;color:var(--text-muted);font-family:var(--mono)}
+        </style>
+        <div style="max-width:600px;margin:0 auto">
+            <h1 style="font-size:22px;margin-bottom:20px">API Health</h1>
+            <div class="health-card">
+                <div class="health-head">
+                    <span class="status-badge ${isOk ? 'ok' : 'err'}">
+                        <span class="pulse"></span>
+                        ${isOk ? 'Operational' : 'Degraded'}
+                    </span>
+                    <span class="health-title">Gharda CRM API</span>
+                </div>
+                ${rowsHtml}
+            </div>
+            <div class="ts">Checked at ${escapeHtml(new Date().toLocaleString('en-IN'))}</div>
+        </div>
+    `;
+
+    return layout('Health', [
+        { label: 'Home', href: '/pages/accounts' },
+        { label: 'Health' },
+    ], body);
+}
+
 // ── Helper functions ────────────────────────────────────────────────────────
 
 function formatSize(bytes) {
@@ -282,11 +357,11 @@ export function renderDashboard(accounts = []) {
     const body = `
 <style>
     :root {
-        --bg:#111210;--bg2:#171815;--bg3:#1e1f1c;
-        --line:#2a2b27;--line2:#333430;
-        --text:#e8e6df;--dim:#7a7870;--faint:#4a4a46;
-        --amber:#c8a96e;--amber2:#e8c87a;
-        --green:#6aaf7a;--red:#d4645a;--blue:#6a9fd4;
+        --bg:#f7f6f3;--bg2:#ffffff;--bg3:#f0efe9;
+        --line:#e2e0d8;--line2:#d4d1c8;
+        --text:#1a1916;--dim:#78756a;--faint:#a8a49a;
+        --amber:#b07d3a;--amber2:#c8943e;
+        --green:#2d7a3e;--red:#b83c35;--blue:#2d5fa8;
         --mono:'JetBrains Mono',monospace;
         --sans:'Instrument Sans',-apple-system,sans-serif;
     }
@@ -375,7 +450,7 @@ export function renderDashboard(accounts = []) {
         cursor:pointer;transition:.12s;
     }
     .pb:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
-    .pb.cur{background:var(--amber);border-color:var(--amber);color:#111;font-weight:600}
+    .pb.cur{background:var(--amber);border-color:var(--amber);color:#fff;font-weight:600}
     .pb:disabled{opacity:.3;cursor:default}
 
     /* Empty */
@@ -2065,19 +2140,19 @@ export function renderLogsPage({ analytics, entries, days, apiKey }) {
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         :root{
-            --bg:#111210;
-            --bg2:#171815;
-            --bg3:#1e1f1c;
-            --line:#2a2b27;
-            --line2:#333430;
-            --text:#e8e6df;
-            --dim:#7a7870;
-            --faint:#4a4a46;
-            --amber:#c8a96e;
-            --amber2:#e8c87a;
-            --red:#d4645a;
-            --green:#6aaf7a;
-            --blue:#6a9fd4;
+            --bg:#f7f6f3;
+            --bg2:#ffffff;
+            --bg3:#f0efe9;
+            --line:#e2e0d8;
+            --line2:#d4d1c8;
+            --text:#1a1916;
+            --dim:#78756a;
+            --faint:#a8a49a;
+            --amber:#b07d3a;
+            --amber2:#c8943e;
+            --red:#b83c35;
+            --green:#2d7a3e;
+            --blue:#2d5fa8;
             --orange:#d4955a;
             --mono:'JetBrains Mono',monospace;
             --sans:'Instrument Sans',-apple-system,sans-serif;
@@ -2233,10 +2308,10 @@ export function renderLogsPage({ analytics, entries, days, apiKey }) {
             cursor:pointer;transition:.12s;letter-spacing:.02em;
         }
         .f:hover{color:var(--text);border-color:var(--line2)}
-        .f.on{background:var(--amber);border-color:var(--amber);color:#111}
+        .f.on{background:var(--amber);border-color:var(--amber);color:#fff}
         .f.fe.on{background:var(--red);border-color:var(--red);color:#fff}
         .f.fw.on{background:var(--orange);border-color:var(--orange);color:#fff}
-        .f.fh.on{background:var(--green);border-color:var(--green);color:#111}
+        .f.fh.on{background:var(--green);border-color:var(--green);color:#fff}
         .log-tbl{width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono)}
         .log-tbl th{
             padding:7px 12px;text-align:left;
@@ -2267,8 +2342,8 @@ export function renderLogsPage({ analytics, entries, days, apiKey }) {
             cursor:pointer;transition:.12s;
         }
         .rbtn:hover{border-color:var(--amber);color:var(--amber)}
-        .rbtn.pri{background:var(--amber);border-color:var(--amber);color:#111;font-weight:600}
-        .rbtn.pri:hover{background:var(--amber2);border-color:var(--amber2)}
+        .rbtn.pri{background:var(--amber);border-color:var(--amber);color:#fff;font-weight:600}
+        .rbtn.pri:hover{background:var(--amber2);border-color:var(--amber2);color:#fff}
         .tog{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
         .tog input{display:none}
         .tog-tr{
@@ -2282,7 +2357,7 @@ export function renderLogsPage({ analytics, entries, days, apiKey }) {
             background:var(--faint);transition:.2s;
         }
         input:checked ~ .tog-tr{background:var(--amber);border-color:var(--amber)}
-        input:checked ~ .tog-tr .tog-th{left:16px;background:#111}
+        input:checked ~ .tog-tr .tog-th{left:16px;background:#fff}
         .cd{font-family:var(--mono);font-size:11px;color:var(--dim);min-width:25px}
         .upd{font-family:var(--mono);font-size:10px;color:var(--faint)}
 
