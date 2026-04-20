@@ -171,7 +171,16 @@ class FarmerController {
         } catch (err) { next(err); }
     }
 
-    // ── DELETE /farmers/:id ────────────────────────────────────────────────
+    // ── POST /farmers/sync ────────────────────────────────────────────────────
+    async syncFromCRM(req, res, next) {
+        try {
+            logger.info('FarmerController: CRM sync triggered');
+            const result = await FarmerService.syncFromCRM();
+            res.json({ success: true, ...result, message: `Synced ${result.synced} farmers from Zoho CRM (${result.inserted} inserted, ${result.updated} updated, ${result.skipped} skipped).` });
+        } catch (err) { next(err); }
+    }
+
+    // ── DELETE /farmers/:id ────────────────────────────────────────────────────
     /**
      * Permanently delete a farmer.
      */

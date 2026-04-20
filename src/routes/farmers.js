@@ -44,6 +44,17 @@ const router = Router();
  *   GET /api/v1/farmers?territory_id=12&page=1&per_page=50
  *   GET /api/v1/farmers?zone_id=1&category=A+
  */
+// ════════════════════════════════════════════════════════════════════════════
+//  SYNC — Pull from Zoho CRM and upsert into SQL
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /farmers/sync
+ * Fetch all Farmers from Zoho CRM and upsert into dbo.farm_farmers.
+ * Safe to run multiple times — uses zoho_record_id as unique key.
+ */
+router.post('/sync', (req, res, next) => ctrl.syncFromCRM(req, res, next));
+
 router.get('/', (req, res, next) => ctrl.list(req, res, next));
 
 /**
