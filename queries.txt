@@ -1,0 +1,25 @@
+ALTER TABLE dbo.farm_farmers
+    ADD zoho_record_id      NVARCHAR(50)   NULL,
+        email               NVARCHAR(150)  NULL,
+        land_holding_acres  DECIMAL(10,2)  NULL,
+        state               NVARCHAR(100)  NULL,
+        region              NVARCHAR(100)  NULL,
+        zone                NVARCHAR(100)  NULL,
+        territory           NVARCHAR(100)  NULL,
+        district            NVARCHAR(100)  NULL,
+        taluka              NVARCHAR(100)  NULL,
+        village             NVARCHAR(100)  NULL,
+        address             NVARCHAR(500)  NULL,
+        contact_number      NVARCHAR(20)   NULL,
+        alternate_contact   NVARCHAR(20)   NULL,
+        crop_season         NVARCHAR(50)   NULL,
+        major_crops         NVARCHAR(300)  NULL,
+        liquidation_agent   NVARCHAR(150)  NULL,
+        date_of_entry       DATETIME2      NULL,
+        crm_owner           NVARCHAR(100)  NULL,
+        synced_at           DATETIME2      DEFAULT GETDATE();
+
+-- Unique constraint so re-syncing doesn't duplicate
+CREATE UNIQUE INDEX UX_farm_farmers_zoho_id 
+    ON dbo.farm_farmers (zoho_record_id) 
+    WHERE zoho_record_id IS NOT NULL;
