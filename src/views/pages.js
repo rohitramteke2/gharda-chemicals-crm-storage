@@ -1941,12 +1941,12 @@ export function renderLogsPage({ analytics, entries, days, apiKey }) {
     const chartBars = daily.map(d => {
         const reqPct = Math.round((d.requests / maxReq) * 100);
         const errPct = d.requests > 0 ? Math.round((d.errors / d.requests) * 100) : 0;
-        return `<div class="bar-group">
-            <div class="bar-wrap">
-                <div class="bar req" style="height:${reqPct}%" title="${d.requests} requests"></div>
-                <div class="bar err" style="height:${errPct}%" title="${d.errors} errors"></div>
+        return `<div class="bg">
+            <div class="bw">
+                <div class="b r" style="height:${reqPct}%" title="${d.requests} requests"></div>
+                <div class="b e" style="height:${errPct}%" title="${d.errors} errors"></div>
             </div>
-            <div class="bar-label">${d.date.slice(5)}</div>
+            <div class="bl">${d.date.slice(5)}</div>
         </div>`;
     }).join('');
 
@@ -1954,23 +1954,23 @@ export function renderLogsPage({ analytics, entries, days, apiKey }) {
     const maxEp = topEndpoints[0]?.count || 1;
     const epRows = topEndpoints.map(e => {
         const pct = Math.round((e.count / maxEp) * 100);
-        return `<div class="ep-row">
+        return `<div class="ep">
             <div class="ep-path">${e.path}</div>
-            <div class="ep-bar-wrap"><div class="ep-bar" style="width:${pct}%"></div></div>
-            <div class="ep-count">${e.count}</div>
+            <div class="ep-bar-bg"><div class="ep-bar-fill" style="width:${pct}%"></div></div>
+            <div class="ep-ct">${e.count}</div>
         </div>`;
-    }).join('') || '<div class="empty-row">No HTTP logs found</div>';
+    }).join('') || '<div class="nil">no http logs found</div>';
 
     // ── Recent errors ────────────────────────────────────────────────────────
     const errRows = recentErrors.map(e => {
         const ts  = e.timestamp || '';
         const msg = e.message || '';
         const extra = e.error || e.stack || '';
-        return `<div class="err-row">
-            <span class="err-ts">${ts}</span>
-            <span class="err-msg">${escH(msg)}${extra ? ` — <em>${escH(String(extra).slice(0, 120))}</em>` : ''}</span>
+        return `<div class="er">
+            <div class="er-ts">${ts}</div>
+            <div class="er-msg">${escH(msg)}${extra ? ` <em>— ${escH(String(extra).slice(0, 120))}</em>` : ''}</div>
         </div>`;
-    }).join('') || '<div class="empty-row">No errors 🎉</div>';
+    }).join('') || '<div class="nil">no errors ✓</div>';
 
     // ── Log entries ──────────────────────────────────────────────────────────
     const entryRows = entries.slice(0, 300).map(e => {
@@ -1978,11 +1978,11 @@ export function renderLogsPage({ analytics, entries, days, apiKey }) {
         const msg = e.message || '';
         const ts  = e.timestamp || '';
         const { level, message, timestamp, ...rest } = e;
-        const extra = Object.keys(rest).length ? JSON.stringify(rest) : '';
+        const extra = Object.keys(rest).length ? ' ' + JSON.stringify(rest) : '';
         return `<tr class="log-row" data-level="${lvl}" data-msg="${escH(msg).toLowerCase()}">
-            <td class="log-ts">${ts}</td>
-            <td><span class="lvl lvl-${lvl}">${lvl}</span></td>
-            <td class="log-msg">${escH(msg)}${extra ? `<span class="log-extra"> ${escH(extra)}</span>` : ''}</td>
+            <td class="ts">${ts}</td>
+            <td><span class="lv lv-${lvl}">${lvl}</span></td>
+            <td class="lm">${escH(msg)}<span class="lx">${escH(extra)}</span></td>
         </tr>`;
     }).join('');
 
